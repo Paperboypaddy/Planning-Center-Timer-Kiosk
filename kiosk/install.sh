@@ -14,7 +14,8 @@
 #   KIOSK_BROWSER_USER   user owning X session   (default kiosk)
 set -euo pipefail
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Project root (parent of this script's directory: .../kiosk/install.sh).
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_DIR="${KIOSK_DEST_DIR:-/opt/kiosk}"
 CONFIG_DIR="${KIOSK_CONFIG_DIR:-/var/lib/kiosk}"
 BROWSER_USER="${KIOSK_BROWSER_USER:-kiosk}"

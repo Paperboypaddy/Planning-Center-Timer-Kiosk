@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Kiosk
+Comment=Kiosk display session (matchbox window manager)
+Exec=/usr/local/bin/kiosk-session.sh
+NoDisplay=true

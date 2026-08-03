@@ -42,6 +42,36 @@ URL="${KIOSK_URL:-http://127.0.0.1:3000/nowplaying}"
 
 mkdir -p "$PROFILE_DIR"
 
+# Wait for the X server to be up before launching Chromium. The kiosk systemd
+# service can start before the display manager has finished bringing up :0 on
+# autologin sessions, so we poll instead of crashing and relying on Restart.
+# Fail (non-zero) if the display never appears so systemd retries cleanly.
+wait_for_x() {
+  local display="${DISPLAY:-:0}"
+  local socket="/tmp/.X11-unix/X${display#:}"
+  local deadline=$(( $(date +%s) + ${KIOSK_X_TIMEOUT:-60} ))
+  while [ ! -S "$socket" ]; do
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "error: X server not ready ($socket missing after ${KIOSK_X_TIMEOUT:-60}s)" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if command -v xset >/dev/null 2>&1; then
+    local tries=0
+    until xset -display "$display" q >/dev/null 2>&1; do
+      tries=$((tries + 1))
+      if [ "$tries" -ge 10 ]; then
+        echo "error: X server on $display not accepting connections" >&2
+        exit 1
+      fi
+      sleep 1
+    done
+  fi
+}
+
+wait_for_x
+
 # Disable screen blanking / DPMS so the countdown never sleeps. Best-effort:
 # only meaningful inside an X session, and xset may not be installed.
 if [[ -n "${DISPLAY:-}" ]]; then

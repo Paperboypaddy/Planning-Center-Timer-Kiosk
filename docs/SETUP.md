@@ -132,6 +132,44 @@ ones to add. See the README for how to create the key.
 To put a service on the TV: tap its button. To send the TV back to the idle
 page: **Show idle page**.
 
+## Raspberry Pi OS Lite (headless) setup
+
+On a headless image there is no desktop to autologin into, so you must provide
+an X server plus a bare session. The pieces we use (all in `kiosk/lightdm/`):
+
+```bash
+# Dependencies (add these to the apt line in step 0)
+sudo apt install -y xorg lightdm matchbox-window-manager x11-xserver-utils
+
+# 1) Autologin into a "kiosk" session as your console user
+sudo cp kiosk/lightdm/50-kiosk-autologin.conf /etc/lightdm/lightdm.conf.d/
+#    …and edit autologin-user to match your username (pi, raspi, …)
+
+# 2) The session: a minimal window manager that keeps X alive. It also grants
+#    the kiosk user X access so the systemd-launched Chromium can attach to :0
+#    without lightdm's root-only Xauthority cookie.
+sudo cp kiosk/lightdm/kiosk-session.sh /usr/local/bin/kiosk-session.sh
+sudo cp kiosk/lightdm/kiosk.desktop /usr/share/xsessions/kiosk.desktop
+sudo chmod +x /usr/local/bin/kiosk-session.sh
+
+# 3) Boot into graphical mode so lightdm (and the browser unit) start
+sudo systemctl set-default graphical.target
+sudo reboot
+```
+
+Notes:
+
+- `launch-kiosk.sh` now waits for the X server (`wait_for_x`) before starting
+  Chromium, so `kiosk-browser.service` handles the boot race with lightdm
+  cleanly instead of crash-looping.
+- `matchbox-window-manager` keeps the X session alive; do **not** pass
+  `-use_corner` to it (invalid option — it prints usage and exits, which ends
+  the session and drops X back to the greeter).
+- The `kiosk-browser.service` unit already sets `User=`/`XAUTHORITY=` — keep
+  them pointing at your console user (see "Platform-specific tweaks").
+
+
+
 ## Troubleshooting
 
 - **Control panel unreachable** → `systemctl status kiosk-control.service`,
