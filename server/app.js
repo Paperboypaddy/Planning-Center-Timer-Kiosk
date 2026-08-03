@@ -7,7 +7,7 @@ const express = require('express');
 const { saveConfig } = require('./config');
 const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, PcoError } = require('./pco');
-const { DISPLAY_TYPES } = require('./kiosk');
+const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
@@ -56,6 +56,9 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       pco: { configured: !!pcoApiKey(), viaEnv: !!process.env.KIOSK_PCO_API_KEY },
       remote: { active: remoteActive },
       displayTypes: DISPLAY_TYPES,
+      themes: THEMES,
+      defaultDisplayType: config.defaultDisplayType,
+      defaultTheme: config.defaultTheme,
     };
   }
 
@@ -96,6 +99,56 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
     config.urlTemplate = urlTemplate;
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({ urlTemplate: config.urlTemplate });
+  });
+
+  // Save panel settings: URL template, default display type, default theme.
+  app.put('/api/settings', (req, res) => {
+    const body = req.body || {};
+    if (body.urlTemplate !== undefined) {
+      const urlTemplate = typeof body.urlTemplate === 'string' ? body.urlTemplate.trim() : '';
+      if (!urlTemplate) return res.status(400).json({ error: 'urlTemplate cannot be empty' });
+      config.urlTemplate = urlTemplate;
+    }
+    if (body.defaultDisplayType !== undefined) {
+      const value = body.defaultDisplayType === null ? null : String(body.defaultDisplayType);
+      if (value !== null && !DISPLAY_TYPES.includes(value)) {
+        return res.status(400).json({ error: `unknown display type "${value}"` });
+      }
+      config.defaultDisplayType = value;
+    }
+    if (body.defaultTheme !== undefined) {
+      const value = body.defaultTheme;
+      if (value !== null && value !== 'light' && value !== 'dark') {
+        return res.status(400).json({ error: 'defaultTheme must be "light", "dark" or null' });
+      }
+      config.defaultTheme = value;
+    }
+    if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    res.json({
+      urlTemplate: config.urlTemplate,
+      defaultDisplayType: config.defaultDisplayType,
+      defaultTheme: config.defaultTheme,
+    });
+  });
+
+  // Apply the saved defaults to the kiosk's current live page (no selection
+  // needed). Best-effort per setting.
+  app.post('/api/kiosk/settings/apply', async (req, res) => {
+    const applied = { displayType: null, theme: null };
+    try {
+      if (config.defaultDisplayType) {
+        await kiosk.setDisplayType(config.defaultDisplayType);
+        applied.displayType = config.defaultDisplayType;
+      }
+      if (config.defaultTheme) {
+        await kiosk.setTheme(config.defaultTheme);
+        applied.theme = config.defaultTheme;
+      }
+      res.json({ ok: true, applied });
+    } catch (err) {
+      logger.error(`[kiosk] apply settings failed: ${err.message}`);
+      res.status(502).json({ error: err.message, applied });
+    }
   });
 
   app.post('/api/services', (req, res) => {
@@ -157,16 +210,24 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       config.activeServiceId = service.id;
       if (!persist()) return res.status(500).json({ error: 'failed to save config' });
 
-      // If the service has a display type, set it on the live page. This is
-      // best-effort and never blocks the selection from succeeding.
+      // Apply the display type (per-service override, else the saved default)
+      // and the default theme. Best-effort — never blocks the selection.
       let displayType = null;
-      if (service.displayType) {
+      const displayTypeValue = service.displayType || config.defaultDisplayType;
+      if (displayTypeValue) {
         try {
-          await kiosk.setDisplayType(service.displayType);
-          displayType = { value: service.displayType, applied: true };
+          await kiosk.setDisplayType(displayTypeValue);
+          displayType = { value: displayTypeValue, applied: true, source: service.displayType ? 'service' : 'default' };
         } catch (err) {
-          logger.warn(`[kiosk] display type "${service.displayType}" not applied: ${err.message}`);
-          displayType = { value: service.displayType, applied: false, error: err.message };
+          logger.warn(`[kiosk] display type "${displayTypeValue}" not applied: ${err.message}`);
+          displayType = { value: displayTypeValue, applied: false, error: err.message };
+        }
+      }
+      if (config.defaultTheme) {
+        try {
+          await kiosk.setTheme(config.defaultTheme);
+        } catch (err) {
+          logger.warn(`[kiosk] theme "${config.defaultTheme}" not applied: ${err.message}`);
         }
       }
       res.json({ ok: true, url, activeServiceId: service.id, skipped: result.skipped, displayType });

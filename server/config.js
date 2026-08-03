@@ -15,6 +15,11 @@ function defaults() {
     urlTemplate: DEFAULT_TEMPLATE,
     activeServiceId: null,
     services: [],
+    // Global defaults applied to every service when selected:
+    //   defaultDisplayType - PCO live-controller layout ("" = leave as-is)
+    //   defaultTheme        - "light" | "dark" | null (leave as-is)
+    defaultDisplayType: null,
+    defaultTheme: null,
     // Optional Planning Center API credentials (personal access token, or
     // "<app_id>:<secret>"). Never exposed back through the API; the effective
     // key is env KIOSK_PCO_API_KEY first, then this.
@@ -45,6 +50,9 @@ function normalize(data) {
 
   const active = cfg.services.find((s) => s.id === data.activeServiceId);
   cfg.activeServiceId = active ? active.id : null;
+
+  cfg.defaultDisplayType = (typeof data.defaultDisplayType === 'string' && data.defaultDisplayType) || null;
+  cfg.defaultTheme = data.defaultTheme === 'light' || data.defaultTheme === 'dark' ? data.defaultTheme : null;
 
   if (data.pco && typeof data.pco === 'object') {
     cfg.pco = {

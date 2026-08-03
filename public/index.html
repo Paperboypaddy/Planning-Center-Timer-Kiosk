@@ -33,7 +33,25 @@
     <label for="url-template">URL template</label>
     <input id="url-template" type="text" spellcheck="false" autocomplete="off">
     <p class="hint">The PCO plan ID replaces <code>{serviceId}</code>. The optional <code>{displayType}</code> token is replaced with each service's display type.</p>
-    <button id="save-template" class="btn btn-primary">Save template</button>
+
+    <label for="default-display-type">Default display type</label>
+    <select id="default-display-type">
+      <option value="">(PCO default)</option>
+    </select>
+    <p class="hint">Applied to every service you load. Per-service display types override it.</p>
+
+    <label for="default-theme">Default theme</label>
+    <select id="default-theme">
+      <option value="">(don't change)</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+    <p class="hint">Applied to every service you load, using the toggle on the PCO live page.</p>
+
+    <div class="settings-actions">
+      <button id="apply-kiosk-settings" class="btn btn-ghost">Apply to kiosk now</button>
+      <button id="save-template" class="btn btn-primary">Save settings</button>
+    </div>
     <div id="save-template-msg" class="msg" role="status"></div>
   </section>
 
@@ -64,12 +82,6 @@
     <div class="remote-actions">
       <button id="remote-start" class="btn btn-primary">Start remote control</button>
       <button id="remote-stop" class="btn btn-ghost">Stop</button>
-    </div>
-    <div class="remote-actions remote-type-row">
-      <select id="remote-display-type" aria-label="Set display type on the kiosk live page">
-        <option value="">Set display type\u2026</option>
-      </select>
-      <button id="remote-apply-display" class="btn btn-primary">Apply</button>
     </div>
     <div id="remote-status" class="msg" role="status"></div>
     <div id="remote-view" class="hidden">

@@ -18,8 +18,18 @@ test('defaults has the verified PCO live URL template', () => {
     urlTemplate: DEFAULT_TEMPLATE,
     activeServiceId: null,
     services: [],
+    defaultDisplayType: null,
+    defaultTheme: null,
     pco: { apiKey: null },
   });
+});
+
+test('normalize keeps display defaults', () => {
+  const cfg = normalize({ defaultDisplayType: 'Lower Third', defaultTheme: 'dark' });
+  assert.equal(cfg.defaultDisplayType, 'Lower Third');
+  assert.equal(cfg.defaultTheme, 'dark');
+  assert.equal(normalize({ defaultTheme: 'pink' }).defaultTheme, null);
+  assert.equal(normalize({ defaultDisplayType: 42 }).defaultDisplayType, null);
 });
 
 test('normalize keeps well-formed services', () => {

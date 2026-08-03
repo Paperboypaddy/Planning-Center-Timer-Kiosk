@@ -123,25 +123,25 @@ tokens: `{serviceId}` (required for most setups) and `{displayType}` (optional;
 replaced with an empty string when unset). Verify the pattern against your own
 account before relying on it — see [docs/SETUP.md](docs/SETUP.md#2-find-and-verify-the-correct-pco-live-url-template).
 
-## Display type (per service)
+## Display type & theme (defaults)
 
-Each service can also carry a `displayType`. When you select such a service,
-after navigating to its live page the control server sets the Planning Center
-**live-controller layout** to that value via CDP (it briefly emulates a desktop
-viewport — the layout dropdown only renders there — clicks the menu item, then
-restores the native viewport). Planning Center saves the layout per plan, so it
-persists on the TV's presentation. Known values (from the PCO live controller
-toolbar):
+Each service can carry a `displayType`, and the panel has global defaults
+(`defaultDisplayType`, `defaultTheme`) that apply to **every** service you load
+(a per-service display type overrides the default). On selection — or via the
+panel's **Apply to kiosk now** button — the control server sets the Planning
+Center **live-controller layout** and **light/dark theme** via CDP (it briefly
+emulates a desktop viewport, since those controls only render there, clicks
+the option, then restores the native viewport). Planning Center saves both per
+plan, so they persist on the TV's presentation.
+
+Known display-type values (from the PCO live controller toolbar):
 
 ```
 Normal Layout · Countdown Full · Countdown Lower · Lower Third · Fullscreen Overview
 ```
 
-The panel's service dialog offers these in a dropdown, and the **Kiosk remote
-control** section has a "Set display type" control for experimenting without
-editing a service. Selection applies even if it fails partway — the kiosk
-still navigates and the error is reported in the response
-(`displayType.applied: false`).
+Theme values: `light` / `dark`. Application is best-effort and never blocks the
+selection — failures are reported in the response (`displayType.applied: false`).
 
 ## Optional: import services from the Planning Center API
 
@@ -179,6 +179,8 @@ systemd):
 {
   "urlTemplate": "https://services.planningcenteronline.com/live/{serviceId}",
   "activeServiceId": "…",
+  "defaultDisplayType": null,
+  "defaultTheme": null,
   "services": [
     { "id": "…", "name": "Sunday 9am", "serviceId": "90197325", "displayType": "" }
   ],
@@ -200,7 +202,10 @@ systemd):
 | --- | --- | --- |
 | `GET` | `/api/state` | Full state: template, services, active selection, kiosk/PCO status |
 | `GET` | `/api/health` | Liveness + kiosk connection |
-| `PUT` | `/api/url-template` | Set the URL template |
+| `PUT` | `/api/url-template` | Set the URL template (kept for compat; use `/api/settings`) |
+| `PUT` | `/api/settings` | Set `{urlTemplate?, defaultDisplayType?, defaultTheme?}` |
+| `POST` | `/api/kiosk/settings/apply` | Apply saved defaults to the kiosk's current page |
+| `POST` | `/api/kiosk/display-type` | `{value}` — set the live page's display type on the kiosk tab now |
 | `POST` | `/api/services` | Add a service `{name, serviceId, displayType?}` |
 | `PUT` | `/api/services/:id` | Update a service |
 | `DELETE` | `/api/services/:id` | Delete a service |
@@ -214,7 +219,6 @@ systemd):
 | `POST` | `/api/remote/stop` | Stop the screencast |
 | `POST` | `/api/remote/input` | Forward `{type:'mouse'|'text'|'key', …}` to the kiosk tab |
 | `GET` | `/api/remote/stream` | SSE stream of kiosk screencast frames |
-| `POST` | `/api/kiosk/display-type` | `{value}` — set the live page's display type on the kiosk tab |
 
 `POST /api/select` returns `200` with `skipped: true` when the kiosk tab is
 already on that URL (no unnecessary reload), and `502` when the kiosk browser

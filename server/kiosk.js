@@ -6,8 +6,12 @@ const CDP = require('chrome-remote-interface');
 const DEFAULT_RECONNECT_MS = 5000;
 
 // The live-page layout options offered by the Planning Center live controller
-// toolbar ("display type" for a service). Stored per-service in `displayType`.
+// toolbar ("display type" for a service). Stored per-service in `displayType`
+// or globally as the default display type.
 const DISPLAY_TYPES = ['Normal Layout', 'Countdown Full', 'Countdown Lower', 'Lower Third', 'Fullscreen Overview'];
+
+// The light/dark theme toggle on the live controller toolbar.
+const THEMES = ['light', 'dark'];
 
 // Drives the kiosk's Chromium tab over the Chrome DevTools Protocol.
 //
@@ -291,6 +295,49 @@ class KioskDriver extends EventEmitter {
     }
   }
 
+  // Set the live page's light/dark theme (the radio switch in the live
+  // controller toolbar). Like setDisplayType, it briefly emulates a desktop
+  // viewport, clicks the matching radio, then restores the native viewport.
+  async setTheme(theme, { restoreViewport = true } = {}) {
+    if (!THEMES.includes(theme)) {
+      throw new Error(`unknown theme "${theme}"; expected light or dark`);
+    }
+    const client = await this.connect();
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 1920,
+      height: 1080,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    const emulated = true;
+    try {
+      const target = JSON.stringify(theme);
+      const deadline = Date.now() + 15000;
+      for (;;) {
+        const r = await this.evaluate(`(() => {
+          const sw = document.querySelector('.theme-toggle-switch');
+          if (!sw) return { state: 'waiting' };
+          const checked = sw.querySelector('input:checked');
+          if (checked && checked.value === ${target}) return { state: 'done' };
+          const input = sw.querySelector('input[value=${target}]');
+          if (!input) return { state: 'bad-value' };
+          input.click();
+          return { state: 'clicked' };
+        })()`);
+        if (r && r.state === 'done') return { ok: true };
+        if (r && r.state === 'bad-value') throw new Error(`theme "${theme}" switch not found on this page`);
+        if (Date.now() > deadline) {
+          throw new Error(r && r.state === 'waiting' ? 'theme switch not available on this page' : `could not set theme "${theme}"`);
+        }
+        await sleep(500);
+      }
+    } finally {
+      if (restoreViewport && emulated) {
+        try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* tab may have navigated */ }
+      }
+    }
+  }
+
   stop() {
     this.stopped = true;
     if (this.client) this.client.close();
@@ -313,4 +360,4 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { KioskDriver, normalizeUrl, DISPLAY_TYPES };
+module.exports = { KioskDriver, normalizeUrl, DISPLAY_TYPES, THEMES };

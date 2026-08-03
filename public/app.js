@@ -165,9 +165,14 @@
   saveTemplateBtn.addEventListener('click', async () => {
     const urlTemplate = templateInput.value.trim();
     if (!urlTemplate) { saveTemplateMsg.textContent = 'Template cannot be empty.'; saveTemplateMsg.className = 'msg err'; return; }
+    const defaultDisplayType = document.getElementById('default-display-type').value || null;
+    const defaultTheme = document.getElementById('default-theme').value || null;
     try {
-      await api('/api/url-template', { method: 'PUT', body: JSON.stringify({ urlTemplate }) });
-      saveTemplateMsg.textContent = 'Template saved.';
+      await api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ urlTemplate, defaultDisplayType, defaultTheme }),
+      });
+      saveTemplateMsg.textContent = 'Settings saved.';
       saveTemplateMsg.className = 'msg ok';
     } catch (err) {
       saveTemplateMsg.textContent = 'Save failed: ' + err.message;
@@ -345,15 +350,16 @@
     remoteStatus.className = 'msg' + (cls ? ' ' + cls : '');
   }
 
-  // Fill both display-type dropdowns from the server's known layout list.
+  // Fill the display-type dropdowns (service dialog + settings default) from
+  // the server's known layout list.
   function populateDisplayTypes() {
     const types = (state && state.displayTypes) || [];
-    for (const sel of [fDisplayType, document.getElementById('remote-display-type')]) {
+    for (const sel of [fDisplayType, document.getElementById('default-display-type')]) {
       const current = sel.value;
       sel.innerHTML = '';
       const blank = document.createElement('option');
       blank.value = '';
-      blank.textContent = sel === fDisplayType ? '(PCO default)' : 'Set display type\u2026';
+      blank.textContent = '(PCO default)';
       sel.appendChild(blank);
       for (const t of types) {
         const o = document.createElement('option');
@@ -363,17 +369,22 @@
       }
       if (types.includes(current)) sel.value = current;
     }
+    document.getElementById('default-theme').value = (state && state.defaultTheme) || '';
   }
 
-  document.getElementById('remote-apply-display').addEventListener('click', async () => {
-    const value = document.getElementById('remote-display-type').value;
-    if (!value) { setRemoteStatus('Pick a display type first.', 'err'); return; }
-    setRemoteStatus('Applying display type\u2026', '');
+  document.getElementById('apply-kiosk-settings').addEventListener('click', async () => {
+    saveTemplateMsg.textContent = 'Applying\u2026';
+    saveTemplateMsg.className = 'msg';
     try {
-      await api('/api/kiosk/display-type', { method: 'POST', body: JSON.stringify({ value }) });
-      setRemoteStatus('Display type set to \u201c' + value + '\u201d.', 'ok');
+      const r = await api('/api/kiosk/settings/apply', { method: 'POST' });
+      const bits = [];
+      if (r.applied.displayType) bits.push('display type: ' + r.applied.displayType);
+      if (r.applied.theme) bits.push('theme: ' + r.applied.theme);
+      saveTemplateMsg.textContent = bits.length ? 'Applied ' + bits.join(', ') + '.' : 'Nothing set to apply yet.';
+      saveTemplateMsg.className = 'msg ok';
     } catch (err) {
-      setRemoteStatus('Could not set: ' + err.message, 'err');
+      saveTemplateMsg.textContent = 'Apply failed: ' + err.message;
+      saveTemplateMsg.className = 'msg err';
     }
   });
 

@@ -89,3 +89,66 @@ test('select applies the service display type and reports it', async () => {
     await mock.close();
   }
 });
+
+test('select applies the global default display type and default theme', async () => {
+  const mock = await startMockCdp({ url: IDLE });
+  mock.setEvaluateResult({ state: 'done' });
+  const ctx = await startApp(mock.port);
+  try {
+    // Save defaults.
+    const setRes = await ctx.send('/api/settings', 'PUT', {
+      defaultDisplayType: 'Countdown Full',
+      defaultTheme: 'light',
+    });
+    assert.equal(setRes.status, 200);
+    assert.equal(setRes.body.defaultDisplayType, 'Countdown Full');
+    assert.equal(setRes.body.defaultTheme, 'light');
+
+    // A service with no displayType picks up the default.
+    const res = await ctx.send('/api/services', 'POST', { name: 'Sun', serviceId: '777' });
+    const sel = await ctx.send('/api/select', 'POST', { id: res.body.service.id });
+    assert.equal(sel.status, 200);
+    assert.equal(sel.body.displayType.value, 'Countdown Full');
+    assert.equal(sel.body.displayType.applied, true);
+    assert.equal(sel.body.displayType.source, 'default');
+
+    // The default theme was applied too (Runtime.evaluate calls for theme).
+    const evaluateCalls = mock.commandLog.filter((c) => c.method === 'Runtime.evaluate').length;
+    assert.ok(evaluateCalls >= 2, 'display type + theme both evaluated');
+
+    // A per-service displayType overrides the default.
+    const res2 = await ctx.send('/api/services', 'POST', { name: 'Sat', serviceId: '888', displayType: 'Lower Third' });
+    const sel2 = await ctx.send('/api/select', 'POST', { id: res2.body.service.id });
+    assert.equal(sel2.body.displayType.value, 'Lower Third');
+    assert.equal(sel2.body.displayType.source, 'service');
+
+    // Invalid settings are rejected.
+    const bad = await ctx.send('/api/settings', 'PUT', { defaultTheme: 'pink' });
+    assert.equal(bad.status, 400);
+    const bad2 = await ctx.send('/api/settings', 'PUT', { defaultDisplayType: 'Nope' });
+    assert.equal(bad2.status, 400);
+  } finally {
+    await ctx.close();
+    await mock.close();
+  }
+});
+
+test('POST /api/kiosk/settings/apply applies saved defaults to the current page', async () => {
+  const mock = await startMockCdp({ url: IDLE });
+  mock.setEvaluateResult({ state: 'done' });
+  const ctx = await startApp(mock.port);
+  try {
+    // Nothing configured: no-op.
+    let r = await ctx.send('/api/kiosk/settings/apply', 'POST');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.applied, { displayType: null, theme: null });
+
+    await ctx.send('/api/settings', 'PUT', { defaultDisplayType: 'Countdown Full', defaultTheme: 'dark' });
+    r = await ctx.send('/api/kiosk/settings/apply', 'POST');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.applied, { displayType: 'Countdown Full', theme: 'dark' });
+  } finally {
+    await ctx.close();
+    await mock.close();
+  }
+});
