@@ -95,6 +95,9 @@ trap cleanup EXIT
 #   --blink-settings=backgroundcolor=FF000000  makes the default page
 #   background opaque black, so navigating shows a black screen instead of a
 #   white flash (this is a TV kept in dark mode).
+#   --force-dark-mode  makes the browser's own surfaces (window, compositor,
+#   default background) follow the dark scheme instead of white — this is the
+#   layer that --blink-settings does NOT reach.
 FLAGS=(
   --remote-debugging-port="${DEBUG_PORT}"
   --remote-debugging-address=127.0.0.1
@@ -104,6 +107,7 @@ FLAGS=(
   --noerrdialogs
   --disable-session-crashed-bubble
   --password-store=basic
+  --force-dark-mode
   --blink-settings=backgroundcolor=FF000000
   --disable-features=TranslateUI,MediaRouter
 )

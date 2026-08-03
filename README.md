@@ -249,9 +249,12 @@ as Chromium reconnects.
   particular we do **not** pass `--disable-gpu` or force compositing, so
   Chromium picks a graphics backend suitable for the hardware (e.g. the Orange
   Pi Zero 3's GPU via `dri3` on Armbian).
-- **Dark TV**: `--blink-settings=backgroundcolor=FF000000` makes the browser's
-  default page background opaque black, so page loads show a black screen
-  instead of a white flash.
+- **Dark TV**: page loads should never flash white. Chromium gets
+  `--force-dark-mode` and `--blink-settings=backgroundcolor=FF000000` (they
+  cover the browser's own surfaces), and the control server injects
+  `html,body{background-color:#000}` into every new document via CDP
+  (`Page.addScriptToEvaluateOnNewDocument`), which covers sites that paint a
+  white shell before their theme loads (e.g. the PCO SPA).
 - **mDNS**: install `avahi-daemon` so `http://<hostname>.local:3000` works
   from a phone without remembering an IP.
 

@@ -70,6 +70,30 @@ class KioskDriver extends EventEmitter {
       });
       client.on('disconnect', () => this._onDisconnect());
       await client.send('Page.enable');
+      // Force a black page background on every new document. Sites like the
+      // Planning Center SPA paint a white shell before their (dark) theme
+      // hydrates, which flashes on a dark-mode TV. --force-dark-mode and
+      // --blink-settings cover the browser surfaces but not a page's own CSS,
+      // so inject a style as early as possible in each new document.
+      try {
+        await client.send('Page.addScriptToEvaluateOnNewDocument', {
+          source: `(function(){
+            function paint(){
+              var s = document.createElement('style');
+              s.textContent = 'html,body{background-color:#000!important}';
+              (document.head || document.documentElement).appendChild(s);
+            }
+            if (document.documentElement) paint();
+            else {
+              var t = setInterval(function(){
+                if (document.documentElement) { clearInterval(t); paint(); }
+              }, 0);
+            }
+          })();`,
+        });
+      } catch {
+        // unsupported on some Chromium builds; harmless
+      }
       this.client = client;
       this.emit('connect');
       return client;
