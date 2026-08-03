@@ -21,7 +21,7 @@ test('defaults has the verified PCO live URL template', () => {
     defaultDisplayType: null,
     defaultTheme: null,
     tv: { autoOn: false, leadMinutes: 30 },
-    reboot: { at: null },
+    reboot: { cron: null },
     pco: { apiKey: null },
   });
 });
@@ -31,16 +31,21 @@ test('normalize keeps display defaults, TV and reboot settings', () => {
     defaultDisplayType: 'Lower Third',
     defaultTheme: 'dark',
     tv: { autoOn: true, leadMinutes: 45 },
-    reboot: { at: '04:30' },
+    reboot: { cron: '30 4 * * *' },
   });
   assert.equal(cfg.defaultDisplayType, 'Lower Third');
   assert.equal(cfg.defaultTheme, 'dark');
   assert.equal(cfg.tv.autoOn, true);
   assert.equal(cfg.tv.leadMinutes, 45);
-  assert.equal(cfg.reboot.at, '04:30');
+  assert.equal(cfg.reboot.cron, '30 4 * * *');
   assert.equal(normalize({ defaultTheme: 'pink' }).defaultTheme, null);
-  assert.equal(normalize({ reboot: { at: 'soon' } }).reboot.at, null);
+  assert.equal(normalize({ reboot: { cron: 'garbage' } }).reboot.cron, 'garbage');
   assert.equal(normalize({ defaultDisplayType: 42 }).defaultDisplayType, null);
+});
+
+test('normalize migrates the old HH:MM reboot.at into a daily cron', () => {
+  assert.equal(normalize({ reboot: { at: '04:30' } }).reboot.cron, '30 4 * * *');
+  assert.equal(normalize({ reboot: { at: null } }).reboot.cron, null);
 });
 
 test('normalize keeps serviceTypeId on services', () => {

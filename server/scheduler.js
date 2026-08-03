@@ -1,11 +1,12 @@
 'use strict';
 
 const { execFile } = require('child_process');
+const { CronExpressionParser } = require('cron-parser');
 
 // Background tasks for the kiosk:
 //   - auto-on: turn the TV on `leadMinutes` before the next service/rehearsal
 //     time of any configured service (needs a PCO API key to know the times)
-//   - daily reboot: `systemctl reboot` at config.reboot.at ("HH:MM")
+//   - daily reboot: `systemctl reboot` when config.reboot.cron matches
 // All timing is coarse (checked every intervalMs); failure is always non-fatal.
 function createScheduler({
   config,
@@ -21,17 +22,24 @@ function createScheduler({
   let timer = null;
   let stopped = false;
   let autoOnFired = null; // ISO of the event we last turned the TV on for
-  let rebootLastDay = null; // local YYYY-MM-DD of the last scheduled reboot
+  let rebootFiredMinute = null; // epoch-minute we last fired a reboot for
   let nextTimeCache = { at: 0, value: null };
 
   function checkReboot() {
-    if (!config.reboot || !config.reboot.at) return;
-    const d = new Date();
-    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const day = d.toLocaleDateString('en-CA'); // local YYYY-MM-DD
-    if (hm === config.reboot.at && rebootLastDay !== day) {
-      rebootLastDay = day;
-      logger.log(`[scheduler] scheduled daily reboot at ${config.reboot.at}`);
+    if (!config.reboot || !config.reboot.cron) return;
+    const now = new Date();
+    let expr;
+    try {
+      expr = CronExpressionParser.parse(config.reboot.cron, { currentDate: now });
+    } catch (err) {
+      logger.warn(`[scheduler] invalid reboot cron "${config.reboot.cron}": ${err.message}`);
+      return;
+    }
+    const prev = expr.prev().toDate();
+    const minute = Math.floor(now.getTime() / 60000);
+    if (Math.floor(prev.getTime() / 60000) === minute && rebootFiredMinute !== minute) {
+      rebootFiredMinute = minute;
+      logger.log(`[scheduler] scheduled reboot (cron "${config.reboot.cron}")`);
       if (rebootFn) {
         rebootFn();
       } else {

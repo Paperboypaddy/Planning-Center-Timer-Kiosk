@@ -21,9 +21,10 @@ function defaults() {
     defaultDisplayType: null,
     defaultTheme: null,
     // TV (HDMI-CEC) behavior: auto-on before the next service/rehearsal time,
-    // leadMinutes before. reboot.at is a "HH:MM" daily reboot (null = off).
+    // leadMinutes before. reboot.cron is a 5-field cron expression for the
+    // daily reboot (null = off).
     tv: { autoOn: false, leadMinutes: 30 },
-    reboot: { at: null },
+    reboot: { cron: null },
     // Optional Planning Center API credentials (personal access token, or
     // "<app_id>:<secret>"). Never exposed back through the API; the effective
     // key is env KIOSK_PCO_API_KEY first, then this.
@@ -64,9 +65,12 @@ function normalize(data) {
     leadMinutes:
       data.tv && typeof data.tv.leadMinutes === 'number' && data.tv.leadMinutes >= 0 ? data.tv.leadMinutes : 30,
   };
-  cfg.reboot = {
-    at: data.reboot && typeof data.reboot.at === 'string' && /^\d{2}:\d{2}$/.test(data.reboot.at) ? data.reboot.at : null,
-  };
+  // Reboot cron. Backwards-compatible with the old "HH:MM" daily `at` field.
+  let rebootCron = data.reboot && typeof data.reboot.cron === 'string' ? data.reboot.cron : null;
+  if (!rebootCron && data.reboot && typeof data.reboot.at === 'string' && /^\d{2}:\d{2}$/.test(data.reboot.at)) {
+    rebootCron = `${Number(data.reboot.at.slice(3))} ${Number(data.reboot.at.slice(0, 2))} * * *`;
+  }
+  cfg.reboot = { cron: rebootCron };
 
   if (data.pco && typeof data.pco === 'object') {
     cfg.pco = {

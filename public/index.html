@@ -93,7 +93,7 @@
 
   <section class="settings">
     <div class="section-head">
-      <h2>TV &amp; reboot</h2>
+      <h2>TV &amp; auto-on</h2>
     </div>
     <div id="tv-status" class="tv-status">Checking CEC\u2026</div>
     <div class="remote-actions">
@@ -107,12 +107,43 @@
     <p class="hint">Turns the TV on before the next service or rehearsal time of any saved service (needs the Planning Center API key).</p>
     <label for="tv-lead">Turn on this many minutes before</label>
     <input id="tv-lead" type="number" min="0" max="600" inputmode="numeric">
-    <label for="reboot-at">Daily reboot at <em>(blank = off)</em></label>
-    <input id="reboot-at" type="time">
     <div class="settings-actions">
       <button id="save-tv" class="btn btn-primary">Save TV settings</button>
     </div>
     <div id="tv-msg" class="msg" role="status"></div>
+  </section>
+
+  <section class="settings">
+    <div class="section-head">
+      <h2>Reboot schedule</h2>
+    </div>
+    <p class="hint">Restart the Pi on a schedule so the kiosk stays fresh. Pick a simple option below, or paste your own cron expression.</p>
+    <label for="reboot-freq">Frequency</label>
+    <select id="reboot-freq">
+      <option value="never">Never</option>
+      <option value="daily">Every day</option>
+      <option value="weekdays">Weekdays (Mon\u2013Fri)</option>
+      <option value="weekly">Weekly on\u2026</option>
+      <option value="custom">Custom (cron)</option>
+    </select>
+    <label for="reboot-day">Day</label>
+    <select id="reboot-day" disabled>
+      <option value="0">Sunday</option>
+      <option value="1">Monday</option>
+      <option value="2">Tuesday</option>
+      <option value="3">Wednesday</option>
+      <option value="4">Thursday</option>
+      <option value="5">Friday</option>
+      <option value="6">Saturday</option>
+    </select>
+    <label for="reboot-time">Time</label>
+    <input id="reboot-time" type="time" value="04:00">
+    <label for="reboot-cron">Cron expression</label>
+    <input id="reboot-cron" type="text" placeholder="e.g. 0 4 * * * (daily at 4:00 AM)" spellcheck="false" autocomplete="off">
+    <div class="settings-actions">
+      <button id="save-reboot" class="btn btn-primary">Save reboot schedule</button>
+    </div>
+    <div id="reboot-msg" class="msg" role="status"></div>
   </section>
 
   <p class="footer">Open <code>/nowplaying</code> on the TV's browser to see the current state.</p>

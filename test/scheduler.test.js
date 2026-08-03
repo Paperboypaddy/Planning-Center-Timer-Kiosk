@@ -78,10 +78,10 @@ test('auto-on is skipped when autoOn is disabled', async () => {
   }
 });
 
-test('daily reboot fires once at the configured time', async () => {
+test('daily reboot fires once at the configured cron time', async () => {
   const config = baseConfig();
   const d = new Date();
-  config.reboot.at = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  config.reboot.cron = `${d.getMinutes()} ${d.getHours()} * * *`;
   let reboots = 0;
   const scheduler = createScheduler({
     config,
@@ -98,14 +98,14 @@ test('daily reboot fires once at the configured time', async () => {
   try {
     await waitFor(() => reboots >= 1);
     await new Promise((r) => setTimeout(r, 200));
-    assert.equal(reboots, 1, 'reboots once per day');
+    assert.equal(reboots, 1, 'reboots once per cron occurrence');
   } finally {
     scheduler.stop();
   }
 });
 
-test('no reboot scheduled when reboot.at is null', async () => {
-  const config = baseConfig(); // reboot.at null
+test('no reboot when no cron is configured or the cron is invalid', async () => {
+  const config = baseConfig(); // reboot.cron null
   let reboots = 0;
   const scheduler = createScheduler({
     config,
@@ -124,6 +124,27 @@ test('no reboot scheduled when reboot.at is null', async () => {
     assert.equal(reboots, 0);
   } finally {
     scheduler.stop();
+  }
+
+  config.reboot.cron = '99 99 * * *'; // invalid
+  reboots = 0;
+  const s2 = createScheduler({
+    config,
+    persist: () => {},
+    pco: { listPlanTimes: async () => [], resolveServiceTypeId: async () => null },
+    cec: { powerOn: async () => ({ ok: true }) },
+    apiKey: () => 'key',
+    logger: quietLogger,
+    rebootFn: () => { reboots += 1; },
+    intervalMs: 40,
+    cacheMs: 1000,
+  });
+  s2.start();
+  try {
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(reboots, 0, 'invalid cron does not reboot');
+  } finally {
+    s2.stop();
   }
 });
 

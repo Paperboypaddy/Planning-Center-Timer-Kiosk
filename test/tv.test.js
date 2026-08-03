@@ -85,28 +85,32 @@ test('TV status shows unavailable when CEC is missing, and off command errors', 
   }
 });
 
-test('settings persist TV auto-on, lead minutes and reboot time', async () => {
+test('settings persist TV auto-on, lead minutes and reboot cron', async () => {
   const cec = { isAvailable: () => true, powerOn: async () => ({ ok: true }), powerOff: async () => ({ ok: true }), powerStatus: async () => ({ ok: true, power: null }) };
   const ctx = await startApp(cec);
   try {
-    const r = await ctx.send('/api/settings', 'PUT', { tvAutoOn: true, tvLeadMinutes: 45, rebootAt: '04:30' });
+    const r = await ctx.send('/api/settings', 'PUT', { tvAutoOn: true, tvLeadMinutes: 45, rebootCron: '30 4 * * *' });
     assert.equal(r.status, 200);
     assert.equal(r.body.tvAutoOn, true);
     assert.equal(r.body.tvLeadMinutes, 45);
-    assert.equal(r.body.rebootAt, '04:30');
+    assert.equal(r.body.rebootCron, '30 4 * * *');
     assert.equal(ctx.config.tv.autoOn, true);
-    assert.equal(ctx.config.reboot.at, '04:30');
+    assert.equal(ctx.config.reboot.cron, '30 4 * * *');
 
-    // Invalid values rejected
-    const bad = await ctx.send('/api/settings', 'PUT', { rebootAt: 'whenever' });
+    // The old "HH:MM" rebootAt still works (converted to a daily cron).
+    const compat = await ctx.send('/api/settings', 'PUT', { rebootAt: '06:15' });
+    assert.equal(compat.body.rebootCron, '15 6 * * *');
+
+    // Invalid cron rejected
+    const bad = await ctx.send('/api/settings', 'PUT', { rebootCron: 'not a cron' });
     assert.equal(bad.status, 400);
     const bad2 = await ctx.send('/api/settings', 'PUT', { tvLeadMinutes: -5 });
     assert.equal(bad2.status, 400);
 
     // Clearing the reboot schedule
-    const clear = await ctx.send('/api/settings', 'PUT', { rebootAt: null });
-    assert.equal(clear.body.rebootAt, null);
-    assert.equal(ctx.config.reboot.at, null);
+    const clear = await ctx.send('/api/settings', 'PUT', { rebootCron: null });
+    assert.equal(clear.body.rebootCron, null);
+    assert.equal(ctx.config.reboot.cron, null);
   } finally {
     await ctx.close();
   }
@@ -120,7 +124,7 @@ test('state exposes TV and reboot config', async () => {
     assert.equal(r.body.tv.available, true);
     assert.equal(r.body.tv.autoOn, false);
     assert.equal(r.body.tv.leadMinutes, 30);
-    assert.equal(r.body.reboot.at, null);
+    assert.equal(r.body.reboot.cron, null);
   } finally {
     await ctx.close();
   }

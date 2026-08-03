@@ -154,8 +154,11 @@ HDMI-CEC (`cec-client`, from `cec-utils`):
   needs a configured API key). Services imported from PCO carry their service
   type id automatically; manually-added services get it backfilled in the
   background when an API key is present.
-- **Reboot schedule**: optionally reboot the Pi once a day (e.g. `04:00`) to
-  keep the kiosk fresh. The scheduler runs inside the control server.
+- **Reboot schedule**: its own panel section. Pick a simple option (**Every
+  day**, **Weekdays**, **Weekly on** a day) plus a time, and the panel writes
+  the cron for you — or paste a full 5-field cron expression (e.g.
+  `30 4 * * *` for 4:30 AM daily). The scheduler runs inside the control
+  server and calls `systemctl reboot` when the cron matches.
 
 The TV must have CEC enabled, and the Pi needs `sudo apt install cec-utils`.
 CEC commands are best-effort: if no CEC device is present the panel shows
@@ -200,7 +203,7 @@ systemd):
   "defaultDisplayType": null,
   "defaultTheme": null,
   "tv": { "autoOn": false, "leadMinutes": 30 },
-  "reboot": { "at": null },
+  "reboot": { "cron": null },
   "services": [
     { "id": "…", "name": "Sunday 9am", "serviceId": "90197325", "displayType": "", "serviceTypeId": "…" }
   ],

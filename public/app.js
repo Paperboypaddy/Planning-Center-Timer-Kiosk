@@ -91,6 +91,7 @@
     syncRemoteState();
     populateDisplayTypes();
     syncTvSettings();
+    syncReboot();
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -197,7 +198,6 @@
   const tvStatusEl = document.getElementById('tv-status');
   const tvAutoOnEl = document.getElementById('tv-auto-on');
   const tvLeadEl = document.getElementById('tv-lead');
-  const rebootAtEl = document.getElementById('reboot-at');
   const tvMsgEl = document.getElementById('tv-msg');
 
   function setTvMsg(text, cls) {
@@ -233,14 +233,12 @@
   document.getElementById('tv-refresh').addEventListener('click', refreshTvStatus);
 
   document.getElementById('save-tv').addEventListener('click', async () => {
-    const rebootAt = rebootAtEl.value || null;
     try {
       await api('/api/settings', {
         method: 'PUT',
         body: JSON.stringify({
           tvAutoOn: tvAutoOnEl.checked,
           tvLeadMinutes: Number(tvLeadEl.value) || 0,
-          rebootAt,
         }),
       });
       setTvMsg('TV settings saved.', 'ok');
@@ -254,8 +252,84 @@
     if (!state) return;
     tvAutoOnEl.checked = !!(state.tv && state.tv.autoOn);
     tvLeadEl.value = (state.tv && state.tv.leadMinutes) || 0;
-    rebootAtEl.value = (state.reboot && state.reboot.at) || '';
   }
+
+  // --- Reboot schedule (easy selector writes the cron) ---
+
+  const rebootFreq = document.getElementById('reboot-freq');
+  const rebootDay = document.getElementById('reboot-day');
+  const rebootTime = document.getElementById('reboot-time');
+  const rebootCron = document.getElementById('reboot-cron');
+  const rebootMsg = document.getElementById('reboot-msg');
+
+  function setRebootMsg(text, cls) {
+    rebootMsg.textContent = text;
+    rebootMsg.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+
+  function simpleToCron() {
+    const freq = rebootFreq.value;
+    if (freq === 'never' || freq === 'custom' || !rebootTime.value) return '';
+    const [h, m] = rebootTime.value.split(':').map(Number);
+    if (freq === 'daily') return m + ' ' + h + ' * * *';
+    if (freq === 'weekdays') return m + ' ' + h + ' * * 1-5';
+    return m + ' ' + h + ' * * ' + rebootDay.value; // weekly
+  }
+
+  // Parse a cron back into the easy selector (or mark it "Custom").
+  function cronToSimple(cron) {
+    const base = { day: '0', time: '04:00' };
+    if (!cron) return Object.assign({ freq: 'never' }, base);
+    const c = String(cron).trim();
+    let r = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(c);
+    if (r) return Object.assign({ freq: 'daily' }, base, { time: pad2(r[2]) + ':' + pad2(r[1]) });
+    r = /^(\d{1,2}) (\d{1,2}) \* \* 1-5$/.exec(c);
+    if (r) return Object.assign({ freq: 'weekdays' }, base, { time: pad2(r[2]) + ':' + pad2(r[1]) });
+    r = /^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/.exec(c);
+    if (r) return Object.assign({ freq: 'weekly', day: r[3] }, base, { time: pad2(r[2]) + ':' + pad2(r[1]) });
+    return Object.assign({ freq: 'custom' }, base);
+  }
+
+  function syncReboot() {
+    if (!state) return;
+    const simple = cronToSimple(state.reboot && state.reboot.cron);
+    rebootFreq.value = simple.freq;
+    rebootDay.value = simple.day;
+    rebootTime.value = simple.time;
+    rebootCron.value = (state.reboot && state.reboot.cron) || '';
+    rebootDay.disabled = simple.freq !== 'weekly';
+  }
+
+  function onRebootChanged() {
+    const freq = rebootFreq.value;
+    rebootDay.disabled = freq !== 'weekly';
+    if (freq !== 'custom') rebootCron.value = simpleToCron();
+  }
+
+  rebootFreq.addEventListener('change', onRebootChanged);
+  rebootDay.addEventListener('change', onRebootChanged);
+  rebootTime.addEventListener('change', onRebootChanged);
+  // If the operator edits the cron directly, re-sync the easy selector.
+  rebootCron.addEventListener('change', () => {
+    const simple = cronToSimple(rebootCron.value);
+    rebootFreq.value = simple.freq;
+    rebootDay.value = simple.day;
+    rebootTime.value = simple.time;
+    rebootDay.disabled = simple.freq !== 'weekly';
+  });
+
+  document.getElementById('save-reboot').addEventListener('click', async () => {
+    const cron = rebootCron.value.trim() || null;
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify({ rebootCron: cron }) });
+      setRebootMsg(cron ? 'Reboot schedule saved (' + cron + ').' : 'Reboot schedule cleared.', 'ok');
+    } catch (err) {
+      setRebootMsg('Save failed: ' + err.message, 'err');
+    }
+    refresh();
+  });
 
   // --- Planning Center import section ---
 

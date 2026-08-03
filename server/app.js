@@ -8,6 +8,7 @@ const { saveConfig } = require('./config');
 const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
+const { CronExpressionParser } = require('cron-parser');
 const cecModule = require('./cec');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -61,7 +62,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       defaultDisplayType: config.defaultDisplayType,
       defaultTheme: config.defaultTheme,
       tv: { available: cec.isAvailable(), autoOn: config.tv.autoOn, leadMinutes: config.tv.leadMinutes },
-      reboot: { at: config.reboot.at },
+      reboot: { cron: config.reboot.cron },
     };
   }
 
@@ -136,12 +137,24 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       }
       config.tv.leadMinutes = n;
     }
-    if (body.rebootAt !== undefined) {
-      const value = body.rebootAt;
-      if (value !== null && !/^\d{2}:\d{2}$/.test(String(value))) {
-        return res.status(400).json({ error: 'rebootAt must be "HH:MM" or null' });
+    // Reboot cron. Accept the old "HH:MM" rebootAt too (converted to cron).
+    let rebootCron = body.rebootCron;
+    if (rebootCron === undefined && body.rebootAt !== undefined) {
+      rebootCron = body.rebootAt;
+      if (rebootCron && /^\d{2}:\d{2}$/.test(String(rebootCron))) {
+        rebootCron = `${Number(String(rebootCron).slice(3))} ${Number(String(rebootCron).slice(0, 2))} * * *`;
       }
-      config.reboot.at = value === null ? null : String(value);
+    }
+    if (rebootCron !== undefined) {
+      const value = rebootCron === null ? null : String(rebootCron).trim();
+      if (value !== null) {
+        try {
+          CronExpressionParser.parse(value);
+        } catch {
+          return res.status(400).json({ error: 'rebootCron must be a valid 5-field cron expression or null' });
+        }
+      }
+      config.reboot.cron = value;
     }
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({
@@ -150,7 +163,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       defaultTheme: config.defaultTheme,
       tvAutoOn: config.tv.autoOn,
       tvLeadMinutes: config.tv.leadMinutes,
-      rebootAt: config.reboot.at,
+      rebootCron: config.reboot.cron,
     });
   });
 
