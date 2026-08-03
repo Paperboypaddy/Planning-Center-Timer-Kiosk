@@ -6,6 +6,10 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=@DEST@
+# Run as an unprivileged user, NOT root. Only reboot is delegated via a narrow
+# sudoers entry (kiosk-control/install.sh writes /etc/sudoers.d/kiosk-reboot).
+# Adjust @CONTROL_USER@ to your kiosk control user.
+User=@CONTROL_USER@
 Environment=KIOSK_PORT=3000
 Environment=KIOSK_CONFIG=@CONFIG_DIR@/config.json
 Environment=KIOSK_CDP_HOST=127.0.0.1
@@ -15,10 +19,11 @@ Environment=KIOSK_CDP_PORT=9222
 #   EnvironmentFile=/etc/kiosk/pco.env        (contains KIOSK_PCO_API_KEY=…)
 # Adjust the path if `which node` reports something else on your distro.
 ExecStart=@NODE_BIN@ @DEST@/server/index.js
-Restart=on-failure
+Restart=always
 RestartSec=5
-# Light hardening; /var/lib/kiosk stays writable for the config file.
-NoNewPrivileges=true
+# Note: NoNewPrivileges is intentionally NOT set — the scheduled reboot runs
+# via `sudo -n systemctl reboot`, which needs to escalate. The service user
+# is unprivileged and its only sudo grant is that single command.
 PrivateTmp=true
 
 [Install]

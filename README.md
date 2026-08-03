@@ -31,8 +31,8 @@ trivial from a phone or laptop on the same network — no SSH, no touching the T
   button per service. Tap to switch the TV.
 - **Idle page** (`/nowplaying`) — what the TV shows when no service is selected.
 - **systemd units** (`kiosk/`) — one for the browser, one for the control
-  server; the browser restarts on crash with `Restart=on-failure`, reusing the
-  same profile directory.
+  server; both restart on any exit (`Restart=always`), reusing the same
+  profile directory.
 
 ### Why CDP and not an iframe?
 
@@ -253,7 +253,7 @@ as Chromium reconnects.
 
 ## Resilience
 
-- **Chromium crashes / reboots**: systemd restarts it with `Restart=on-failure`
+- **Chromium crashes / reboots**: systemd restarts it with `Restart=always`
   using the same profile dir (session survives). The control server watches the
   CDP websocket, reconnects on its own, and re-navigates the tab to whatever
   should be showing (active service or idle page). No manual steps.
@@ -291,6 +291,9 @@ as Chromium reconnects.
 - The control panel has **no authentication** — it is intended for a trusted,
   internal network only. If you expose it beyond that, put it behind a reverse
   proxy with auth (noted as a possible follow-up).
+- The control server runs as an **unprivileged** user (`kiosk` by default).
+  Its only elevated permission is a narrow sudoers entry that allows exactly
+  `systemctl reboot` (for the reboot schedule) — see `kiosk/install.sh`.
 - The **remote control** streams the kiosk browser and forwards keystrokes, so
   anything typed on the panel (including PCO passwords) travels over the LAN.
   Keep the panel on a trusted network and off the public internet.

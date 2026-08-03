@@ -15,7 +15,7 @@ Environment=KIOSK_PROFILE_DIR=@CONFIG_DIR@/chromium-profile
 Environment=KIOSK_URL=http://127.0.0.1:3000/nowplaying
 Environment=KIOSK_DEBUG_PORT=9222
 ExecStart=@DEST@/kiosk/launch-kiosk.sh
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

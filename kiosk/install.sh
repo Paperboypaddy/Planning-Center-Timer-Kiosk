@@ -12,6 +12,7 @@
 #   KIOSK_DEST_DIR       install location        (default /opt/kiosk)
 #   KIOSK_CONFIG_DIR     config + profile dir    (default /var/lib/kiosk)
 #   KIOSK_BROWSER_USER   user owning X session   (default kiosk)
+#   KIOSK_CONTROL_USER   control server user     (default kiosk)
 set -euo pipefail
 
 # Project root (parent of this script's directory: .../kiosk/install.sh).
@@ -19,6 +20,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_DIR="${KIOSK_DEST_DIR:-/opt/kiosk}"
 CONFIG_DIR="${KIOSK_CONFIG_DIR:-/var/lib/kiosk}"
 BROWSER_USER="${KIOSK_BROWSER_USER:-kiosk}"
+CONTROL_USER="${KIOSK_CONTROL_USER:-kiosk}"
 NODE_BIN="$(command -v node || echo /usr/bin/node)"
 
 if [[ ! -x "$NODE_BIN" ]]; then
@@ -34,10 +36,27 @@ cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" \
 echo "==> Installing npm dependencies"
 ( cd "$DEST_DIR" && npm install --omit=dev --no-audit --no-fund )
 
+# The control server must run as an unprivileged user (never root). Create it
+# if it doesn't exist and grant exactly the permissions it needs.
+if ! id -u "$CONTROL_USER" >/dev/null 2>&1; then
+  echo "==> Creating control user '$CONTROL_USER'"
+  useradd --system --shell /usr/sbin/nologin "$CONTROL_USER"
+fi
+
+# CEC (cec-utils) reads /dev/cec0, usually 660 root:video.
+usermod -aG video "$CONTROL_USER" 2>/dev/null || true
+
+# Narrow sudo grant so the scheduler can reboot, and nothing else.
+printf '%s\n' "$CONTROL_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot" \
+  > /etc/sudoers.d/kiosk-reboot
+chmod 440 /etc/sudoers.d/kiosk-reboot
+visudo -c >/dev/null 2>&1 && echo "==> sudoers entry for '$CONTROL_USER' reboot validated"
+
 echo "==> Writing systemd units"
 sed -e "s|@DEST@|$DEST_DIR|g" \
     -e "s|@NODE_BIN@|$NODE_BIN|g" \
     -e "s|@CONFIG_DIR@|$CONFIG_DIR|g" \
+    -e "s|@CONTROL_USER@|$CONTROL_USER|g" \
     "$SRC_DIR/kiosk/kiosk-control.service" > /etc/systemd/system/kiosk-control.service
 
 sed -e "s|@DEST@|$DEST_DIR|g" \
@@ -45,9 +64,13 @@ sed -e "s|@DEST@|$DEST_DIR|g" \
     -e "s|@BROWSER_USER@|$BROWSER_USER|g" \
     "$SRC_DIR/kiosk/kiosk-browser.service" > /etc/systemd/system/kiosk-browser.service
 
-# The browser profile dir must be writable by the X session user.
-if id "$BROWSER_USER" >/dev/null 2>&1; then
-  chown -R "$BROWSER_USER":"$BROWSER_USER" "$CONFIG_DIR/chromium-profile" 2>/dev/null || true
+# The config file belongs to the control user; the browser profile belongs to
+# the browser (X session) user.
+chown -R "$CONTROL_USER":"$CONTROL_USER" "$CONFIG_DIR" 2>/dev/null || true
+if [[ "$BROWSER_USER" != "$CONTROL_USER" ]]; then
+  if id "$BROWSER_USER" >/dev/null 2>&1; then
+    chown -R "$BROWSER_USER":"$BROWSER_USER" "$CONFIG_DIR/chromium-profile" 2>/dev/null || true
+  fi
 fi
 
 systemctl daemon-reload

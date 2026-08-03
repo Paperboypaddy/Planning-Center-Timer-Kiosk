@@ -38,3 +38,11 @@ test('buildUrl handles null/undefined template', () => {
   assert.equal(buildUrl(undefined, { serviceId: '1' }), '');
   assert.equal(buildUrl(null, { serviceId: '1' }), '');
 });
+
+test('buildUrl URL-encodes token values', () => {
+  const url = buildUrl('https://x/live/{serviceId}?view={displayType}', {
+    serviceId: '90197325',
+    displayType: 'Countdown Full',
+  });
+  assert.equal(url, 'https://x/live/90197325?view=Countdown%20Full');
+});

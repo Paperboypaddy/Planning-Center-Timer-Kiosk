@@ -43,7 +43,9 @@ function createScheduler({
       if (rebootFn) {
         rebootFn();
       } else {
-        execFile('systemctl', ['reboot'], (err) => {
+        // The service runs as an unprivileged user; a narrow sudoers entry
+        // (see kiosk/install.sh) grants exactly this one command.
+        execFile('sudo', ['-n', 'systemctl', 'reboot'], (err) => {
           if (err) logger.warn(`[scheduler] reboot failed: ${err.message}`);
         });
       }
@@ -100,7 +102,10 @@ function createScheduler({
     if (!next) return;
     const lead = (config.tv.leadMinutes || 0) * 60000;
     const eventKey = new Date(next).toISOString();
-    if (nowMs >= next - lead && nowMs < next && autoOnFired !== eventKey) {
+    // Fire within [next - lead, next + 60s]. The trailing grace matters when
+    // leadMinutes is 0 (the window would otherwise be empty) or a tick lands
+    // just after the event time.
+    if (nowMs >= next - lead && nowMs <= next + 60000 && autoOnFired !== eventKey) {
       autoOnFired = eventKey;
       const r = await cec.powerOn();
       logger.log(`[scheduler] auto-on TV for ${new Date(next).toISOString()} -> ${r.ok ? 'sent' : 'failed'}`);

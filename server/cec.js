@@ -10,12 +10,10 @@ let availabilityChecked = false;
 let cecAvailable = false;
 
 function commandExists(cmd) {
-  try {
-    spawnSync('which', [cmd], { stdio: 'ignore', timeout: 3000 });
-    return true;
-  } catch {
-    return false;
-  }
+  // spawnSync returns { status } — status 0 means the command was found.
+  // A non-zero exit (command missing) is NOT an exception, so check the code.
+  const r = spawnSync('which', [cmd], { stdio: 'ignore', timeout: 3000 });
+  return r.status === 0;
 }
 
 function isAvailable() {

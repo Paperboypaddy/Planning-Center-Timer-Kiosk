@@ -78,6 +78,35 @@ test('auto-on is skipped when autoOn is disabled', async () => {
   }
 });
 
+test('auto-on fires even with a lead time of zero', async () => {
+  const config = baseConfig();
+  config.tv.autoOn = true;
+  config.tv.leadMinutes = 0;
+  const pco = {
+    // A service that just started: window is [next, next+60s], so it fires.
+    listPlanTimes: async () => [{ timeType: 'service', startsAt: new Date(Date.now() - 10000).toISOString() }],
+    resolveServiceTypeId: async () => '10',
+  };
+  const cec = { calls: 0, powerOn: async () => { cec.calls += 1; return { ok: true }; } };
+  const scheduler = createScheduler({
+    config,
+    persist: () => {},
+    pco,
+    cec,
+    apiKey: () => 'key',
+    logger: quietLogger,
+    intervalMs: 40,
+    cacheMs: 1000,
+  });
+  scheduler.start();
+  try {
+    await waitFor(() => cec.calls >= 1);
+    assert.equal(cec.calls, 1);
+  } finally {
+    scheduler.stop();
+  }
+});
+
 test('daily reboot fires once at the configured cron time', async () => {
   const config = baseConfig();
   const d = new Date();
