@@ -129,6 +129,27 @@ class KioskDriver extends EventEmitter {
     return !!this._screencasting;
   }
 
+  // Best-effort wait for the current page to finish loading. Chrome refuses
+  // Page.startScreencast with "Not attached to an active page" while the
+  // renderer is mid-navigation, so call this after navigating somewhere.
+  async waitForPageLoad({ timeoutMs = 15000 } = {}) {
+    const client = await this.connect();
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      try {
+        const resp = await client.send('Runtime.evaluate', {
+          expression: 'document.readyState',
+          returnByValue: true,
+        });
+        if (resp.result && resp.result.value === 'complete') return true;
+      } catch {
+        // navigation may interrupt evaluation; keep polling
+      }
+      if (Date.now() >= deadline) return false;
+      await sleep(250);
+    }
+  }
+
   async startScreencast({ quality = 60, maxWidth = 1280, maxHeight = 720 } = {}) {
     if (this._screencasting) await this.stopScreencast();
     const client = await this.connect();
@@ -138,14 +159,31 @@ class KioskDriver extends EventEmitter {
       client.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
     };
     client.on('Page.screencastFrame', this._frameHandler);
-    await client.send('Page.startScreencast', {
+    const params = {
       format: 'jpeg',
       quality,
       maxWidth,
       maxHeight,
       everyNthFrame: 1,
-    });
-    this._screencasting = true;
+    };
+    let lastErr;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        await client.send('Page.startScreencast', params);
+        this._screencasting = true;
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (err.message && err.message.includes('Not attached to an active page')) {
+          await sleep(500);
+          continue;
+        }
+        break;
+      }
+    }
+    client.removeListener('Page.screencastFrame', this._frameHandler);
+    this._frameHandler = null;
+    throw lastErr;
   }
 
   async stopScreencast() {

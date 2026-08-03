@@ -38,6 +38,8 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
         const target = targets.find((t) => t.id === ws.kioskTargetId);
         if (target) target.url = msg.params.url;
         navigateLog.push(msg.params.url);
+      } else if (msg.method === 'Runtime.evaluate') {
+        result = { result: { type: 'string', value: 'complete' } };
       }
       ws.send(JSON.stringify({ id: msg.id, result }));
     });

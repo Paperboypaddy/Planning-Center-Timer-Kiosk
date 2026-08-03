@@ -278,7 +278,13 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
   app.post('/api/remote/start', async (req, res) => {
     const url = (req.body || {}).url;
     try {
-      if (url) await kiosk.navigate(url);
+      if (url) {
+        await kiosk.navigate(url);
+        // Let the renderer finish navigating/loading before asking Chrome for
+        // a screencast, otherwise Page.startScreencast fails with
+        // "Not attached to an active page".
+        await kiosk.waitForPageLoad();
+      }
       await kiosk.startScreencast();
       remoteActive = true;
       res.json({ ok: true });
