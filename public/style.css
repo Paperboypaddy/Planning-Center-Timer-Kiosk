@@ -199,6 +199,21 @@ dialog h2 { margin: 0 0 0.5rem; }
 
 .footer { color: var(--muted); font-size: 0.8rem; text-align: center; margin-top: 2rem; }
 
+.remote-actions { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; }
+
+#kiosk-view {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#kiosk-type { margin-top: 0.75rem; }
+
 .pco-list {
   display: flex;
   flex-direction: column;

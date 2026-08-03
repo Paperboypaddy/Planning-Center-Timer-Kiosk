@@ -9,7 +9,9 @@ const { WebSocketServer } = require('ws');
 function startMockCdp({ url, port = 0, empty = false } = {}) {
   const targets = [];
   const navigateLog = [];
+  const commandLog = [];
   let nextId = 1;
+  let nextFrameSession = 1;
 
   const server = http.createServer((req, res) => {
     if (req.url === '/json/list') {
@@ -31,6 +33,7 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
     ws.on('message', (data) => {
       const msg = JSON.parse(data.toString());
       let result = {};
+      commandLog.push({ method: msg.method, params: msg.params || {} });
       if (msg.method === 'Page.navigate') {
         const target = targets.find((t) => t.id === ws.kioskTargetId);
         if (target) target.url = msg.params.url;
@@ -59,6 +62,8 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
         wss,
         targets,
         navigateLog,
+        commandLog,
+        framesAcked: [],
         addTarget(tUrl = url || 'about:blank') {
           const id = `page-${nextId++}`;
           const target = {
@@ -70,6 +75,18 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
           };
           targets.push(target);
           return target;
+        },
+        // Push a Page.screencastFrame event to every connected client.
+        pushFrame(params = {}) {
+          const frame = {
+            method: 'Page.screencastFrame',
+            params: Object.assign({
+              data: 'aGVsbG8=',
+              metadata: { pageScaleFactor: 1, offsetX: 0, offsetY: 0, scrollOffsetX: 0, scrollOffsetY: 0 },
+              sessionId: nextFrameSession++,
+            }, params),
+          };
+          for (const c of wss.clients) c.send(JSON.stringify(frame));
         },
         setUrl(u) {
           const target = targets.find((t) => t.type === 'page');

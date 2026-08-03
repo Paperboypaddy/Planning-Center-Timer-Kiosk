@@ -119,6 +119,73 @@ class KioskDriver extends EventEmitter {
     }
   }
 
+  // --- Remote control (screencast + input) ---
+  //
+  // Lets the control panel stream the kiosk tab (Page.startScreencast) and
+  // forward taps/keystrokes (Input domain). Used for the one-time PCO login
+  // from a phone so the session cookie ends up in the kiosk's own profile.
+
+  get screencasting() {
+    return !!this._screencasting;
+  }
+
+  async startScreencast({ quality = 60, maxWidth = 1280, maxHeight = 720 } = {}) {
+    if (this._screencasting) await this.stopScreencast();
+    const client = await this.connect();
+    this._frameHandler = (params) => {
+      this.emit('frame', params);
+      // Chrome only keeps producing frames after we ack each one.
+      client.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
+    };
+    client.on('Page.screencastFrame', this._frameHandler);
+    await client.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality,
+      maxWidth,
+      maxHeight,
+      everyNthFrame: 1,
+    });
+    this._screencasting = true;
+  }
+
+  async stopScreencast() {
+    if (!this._screencasting) return;
+    this._screencasting = false;
+    try {
+      const client = await this.connect();
+      if (this._frameHandler) {
+        client.removeListener('Page.screencastFrame', this._frameHandler);
+        this._frameHandler = null;
+      }
+      await client.send('Page.stopScreencast');
+    } catch {
+      // client may have died; the reconnect loop re-syncs everything
+    }
+  }
+
+  // x/y are CSS pixels relative to the page viewport.
+  async dispatchMouse({ x, y, type, button = 'left', buttons = 0, clickCount = 1 }) {
+    const client = await this.connect();
+    await client.send('Input.dispatchMouseEvent', { type, x, y, button, buttons, clickCount });
+  }
+
+  async insertText(text) {
+    const client = await this.connect();
+    await client.send('Input.insertText', { text });
+  }
+
+  async key({ type, key, code, text, keyCode }) {
+    const client = await this.connect();
+    await client.send('Input.dispatchKeyEvent', {
+      type,
+      key,
+      code,
+      text,
+      windowsVirtualKeyCode: keyCode,
+      nativeVirtualKeyCode: keyCode,
+    });
+  }
+
   stop() {
     this.stopped = true;
     if (this.client) this.client.close();

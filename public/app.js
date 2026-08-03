@@ -88,6 +88,7 @@
     updateStatus();
     templateInput.value = state.urlTemplate;
     renderPco();
+    syncRemoteState();
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -288,6 +289,120 @@
     }
   });
 
+  // --- Kiosk remote control (stream + input forwarding) ---
+
+  const remoteStart = document.getElementById('remote-start');
+  const remoteStop = document.getElementById('remote-stop');
+  const remoteStatus = document.getElementById('remote-status');
+  const remoteView = document.getElementById('remote-view');
+  const kioskView = document.getElementById('kiosk-view');
+  const kioskType = document.getElementById('kiosk-type');
+  let remoteEs = null;
+
+  function setRemoteStatus(text, cls) {
+    remoteStatus.textContent = text;
+    remoteStatus.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  function remoteInput(body) {
+    api('/api/remote/input', { method: 'POST', body: JSON.stringify(body) }).catch(() => {});
+  }
+
+  function kioskPointerPos(e) {
+    const rect = kioskView.getBoundingClientRect();
+    return {
+      x: Math.round(((e.clientX - rect.left) / rect.width) * kioskView.naturalWidth),
+      y: Math.round(((e.clientY - rect.top) / rect.height) * kioskView.naturalHeight),
+    };
+  }
+
+  function connectRemoteStream() {
+    if (remoteEs) remoteEs.close();
+    remoteEs = new EventSource('/api/remote/stream');
+    remoteEs.onopen = () => setRemoteStatus('Streaming the kiosk. Tap the screen to click.', 'ok');
+    remoteEs.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.active === false) { stopRemote(); return; }
+      if (msg.data) kioskView.src = 'data:image/jpeg;base64,' + msg.data;
+    };
+    remoteEs.onerror = () => {
+      if (remoteEs && remoteEs.readyState === EventSource.CLOSED) {
+        remoteEs = null;
+        setRemoteStatus('Stream ended.', 'err');
+      }
+    };
+  }
+
+  function stopRemote() {
+    if (remoteEs) { remoteEs.close(); remoteEs = null; }
+    remoteView.classList.add('hidden');
+    remoteStart.disabled = false;
+    setRemoteStatus('Remote control stopped.', 'ok');
+  }
+
+  remoteStart.addEventListener('click', async () => {
+    try {
+      await api('/api/remote/start', {
+        method: 'POST',
+        body: JSON.stringify({ url: 'https://login.planningcenteronline.com/' }),
+      });
+      remoteView.classList.remove('hidden');
+      remoteStart.disabled = true;
+      connectRemoteStream();
+    } catch (err) {
+      setRemoteStatus('Could not start: ' + err.message, 'err');
+    }
+  });
+
+  remoteStop.addEventListener('click', async () => {
+    try { await api('/api/remote/stop', { method: 'POST' }); } catch (err) { /* ignore */ }
+    stopRemote();
+  });
+
+  kioskView.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const p = kioskPointerPos(e);
+    remoteInput({ type: 'mouse', event: 'move', x: p.x, y: p.y });
+    remoteInput({ type: 'mouse', event: 'down', x: p.x, y: p.y });
+  });
+  kioskView.addEventListener('pointermove', (e) => {
+    if (e.buttons > 0) {
+      e.preventDefault();
+      const p = kioskPointerPos(e);
+      remoteInput({ type: 'mouse', event: 'move', x: p.x, y: p.y });
+    }
+  });
+  kioskView.addEventListener('pointerup', (e) => {
+    const p = kioskPointerPos(e);
+    remoteInput({ type: 'mouse', event: 'up', x: p.x, y: p.y });
+  });
+
+  kioskType.addEventListener('input', () => {
+    const text = kioskType.value;
+    if (text) remoteInput({ type: 'text', text });
+    kioskType.value = '';
+  });
+  kioskType.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab' || e.key === 'Escape') {
+      e.preventDefault();
+      remoteInput({ type: 'key', key: e.key });
+    }
+  });
+
+  // Re-attach the stream if the page reloads while remote control is active.
+  // render() keeps this in sync with the server's remote state.
+  function syncRemoteState() {
+    if (!state || !state.remote) return;
+    if (state.remote.active && !remoteEs) {
+      remoteView.classList.remove('hidden');
+      remoteStart.disabled = true;
+      connectRemoteStream();
+    } else if (!state.remote.active && remoteEs) {
+      stopRemote();
+    }
+  }
+
+  render(); // syncRemoteState is invoked via render()
   refresh();
   setInterval(refresh, 5000);
 })();

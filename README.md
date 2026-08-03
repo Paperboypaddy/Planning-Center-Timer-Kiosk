@@ -41,6 +41,25 @@ headers that block embedding. Instead of an iframe-swapping kiosk page, we
 navigate the actual kiosk browser tab via the Chrome DevTools Protocol. That is
 a true top-level navigation, so frame-blocking headers are irrelevant.
 
+## Logging in (PCO session) from the panel
+
+The kiosk needs a logged-in Planning Center session. Because the TV has no
+keyboard or mouse, the control panel includes a **remote control** for the
+kiosk: it streams the kiosk's Chromium tab (screencast) and forwards your
+taps and keystrokes over the LAN (CDP `Page` + `Input` domains). You open the
+panel on your phone, tap **Start remote control** (it navigates the kiosk to
+the PCO login page), log in right there — the login happens *inside* the
+kiosk's own Chromium, so the session cookie is stored in its persistent
+profile and survives reboots. The TV never needs any input devices.
+
+This is a one-time setup step (repeat it only if the PCO session expires).
+Do not try to automate the PCO credentials themselves — 2FA/SSO make that
+fragile, and this way the real login flow (including 2FA on your phone) is
+used. The endpoint is `/api/remote/*` plus the SSE stream
+`/api/remote/stream`. Note: during remote control, typed credentials cross the
+LAN to the panel — fine on a trusted network, which the rest of the panel
+already assumes.
+
 ## Quick start (development / testing)
 
 Requires Node.js >= 18 and a Chromium browser.
@@ -171,6 +190,10 @@ systemd):
 | `PUT` | `/api/pco/config` | Save/clear the PCO API key (`{apiKey}`) |
 | `GET` | `/api/pco/plans` | Upcoming plans (needs a configured key) |
 | `POST` | `/api/pco/import` | `{planIds}` → add plans as services (deduped) |
+| `POST` | `/api/remote/start` | Start kiosk screencast; optional `{url}` to navigate first (e.g. the PCO login page) |
+| `POST` | `/api/remote/stop` | Stop the screencast |
+| `POST` | `/api/remote/input` | Forward `{type:'mouse'|'text'|'key', …}` to the kiosk tab |
+| `GET` | `/api/remote/stream` | SSE stream of kiosk screencast frames |
 
 `POST /api/select` returns `200` with `skipped: true` when the kiosk tab is
 already on that URL (no unnecessary reload), and `502` when the kiosk browser
@@ -211,5 +234,8 @@ as Chromium reconnects.
 - The control panel has **no authentication** — it is intended for a trusted,
   internal network only. If you expose it beyond that, put it behind a reverse
   proxy with auth (noted as a possible follow-up).
+- The **remote control** streams the kiosk browser and forwards keystrokes, so
+  anything typed on the panel (including PCO passwords) travels over the LAN.
+  Keep the panel on a trusted network and off the public internet.
 - The optional PCO API key is stored in the config file (root-owned under
   systemd) or read from an env var; it is never returned by the API.

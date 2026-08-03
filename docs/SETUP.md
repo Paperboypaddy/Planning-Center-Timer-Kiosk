@@ -43,25 +43,35 @@ yet — that comes after the login step.
 ## 2. First-time Chromium login (one-time manual step)
 
 The PCO session is a normal browser login cookie, kept alive in a persistent
-Chromium profile. Do this once, as the user who owns the X session.
+Chromium profile. Because the TV has no keyboard or mouse, do it **from the
+control panel's remote control** (recommended):
+
+1. On your phone/laptop, open the control panel (step 5) → **Kiosk remote
+   control → Start remote control**. The panel shows a live stream of the
+   kiosk browser and navigates it to the PCO login page.
+2. Tap the username/email field in the stream, then type in the **type bar**
+   below the stream. Tap the password field, type, then press **Enter** on
+   your keyboard (the type bar forwards it). If PCO uses 2FA, approve it on
+   your phone as usual — the kiosk browser follows along.
+3. When you reach the Services dashboard, tap **Stop**. The session cookie is
+   now stored in the kiosk's own Chromium profile and survives reboots.
+
+Alternative (manual, at the TV): with a keyboard/mouse temporarily attached,
+run the login window directly:
 
 ```bash
 sudo -u kiosk env KIOSK_PROFILE_DIR=/var/lib/kiosk/chromium-profile \
   /opt/kiosk/kiosk/launch-kiosk.sh --login
 ```
 
-- A normal (non-kiosk) Chromium window opens, using the **same** profile dir
-  the kiosk will use.
-- Browse to `https://services.planningcenteronline.com`, log in as usual (this
-  is where 2FA/SSO happens — the kiosk does not automate it).
-- When the dashboard loads, **close the window**.
-- Verify the cookie persisted:
-  ```bash
-  sudo ls /var/lib/kiosk/chromium-profile/Default/Cookies
-  ```
+Log in, close the window, verify the cookie persisted:
+
+```bash
+sudo ls /var/lib/kiosk/chromium-profile/Default/Cookies
+```
 
 Do not log out later — logging out would clear the session. If the PCO session
-expires, repeat this step (it takes 30 seconds).
+expires, repeat the remote-control login (it takes 30 seconds).
 
 ## 3. Find and verify the correct PCO live/countdown URL template
 

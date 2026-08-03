@@ -56,6 +56,23 @@
     </div>
   </section>
 
+  <section class="settings">
+    <div class="section-head">
+      <h2>Kiosk remote control</h2>
+    </div>
+    <p class="hint">Stream the kiosk browser and drive it from here — use it for the one-time Planning Center login. The session cookie is saved in the kiosk's own browser profile, so it survives reboots.</p>
+    <div class="remote-actions">
+      <button id="remote-start" class="btn btn-primary">Start remote control</button>
+      <button id="remote-stop" class="btn btn-ghost">Stop</button>
+    </div>
+    <div id="remote-status" class="msg" role="status"></div>
+    <div id="remote-view" class="hidden">
+      <img id="kiosk-view" alt="kiosk screen">
+      <input id="kiosk-type" type="text" autocomplete="off" placeholder="Tap a field in the kiosk, then type here\u2026">
+      <p class="hint">Tap/drag the kiosk screen to click. Type in the bar to send keystrokes; Enter submits the form.</p>
+    </div>
+  </section>
+
   <p class="footer">Open <code>/nowplaying</code> on the TV's browser to see the current state.</p>
 </main>
 

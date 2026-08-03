@@ -37,6 +37,13 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
 
   kiosk.on('connect', () => {
     syncKiosk();
+    // If we were streaming the kiosk when it restarted, resume the screencast
+    // on the fresh connection once the tab has settled.
+    if (remoteActive) {
+      setTimeout(() => {
+        kiosk.startScreencast().catch((err) => logger.warn(`[remote] auto-restart failed: ${err.message}`));
+      }, 750);
+    }
   });
 
   function state() {
@@ -46,6 +53,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       services: config.services,
       kiosk: { connected: kiosk.connected, idleUrl: kiosk.idleUrl },
       pco: { configured: !!pcoApiKey(), viaEnv: !!process.env.KIOSK_PCO_API_KEY },
+      remote: { active: remoteActive },
     };
   }
 
@@ -233,6 +241,111 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
     } catch (err) {
       handlePcoError(err, res);
     }
+  });
+
+  // --- Remote control of the kiosk tab (screencast + input forwarding) ---
+  // Used for the one-time PCO login from a phone: the panel streams the kiosk
+  // tab and forwards taps/keystrokes, so the session cookie lands in the
+  // kiosk's own Chromium profile. LAN-only (panel has no auth).
+  const sseClients = new Set();
+  let remoteActive = false;
+  let lastFrameMeta = null;
+
+  kiosk.on('frame', (params) => {
+    lastFrameMeta = params.metadata || lastFrameMeta;
+    const payload = `data: ${JSON.stringify({ data: params.data, meta: params.metadata })}\n\n`;
+    for (const client of sseClients) client.write(payload);
+  });
+
+  // Map a point in the screencast frame (device pixels of the JPEG) to CSS
+  // page coordinates for Input.dispatchMouseEvent.
+  function frameToPage(x, y) {
+    const meta = lastFrameMeta || {};
+    const scale = meta.pageScaleFactor || 1;
+    return {
+      x: (x - (meta.offsetX || 0)) / scale + (meta.scrollOffsetX || 0),
+      y: (y - (meta.offsetY || 0)) / scale + (meta.scrollOffsetY || 0),
+    };
+  }
+
+  const KEYMAP = {
+    Enter: { key: 'Enter', code: 'Enter', text: '\r', vk: 13 },
+    Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+    Tab: { key: 'Tab', code: 'Tab', vk: 9 },
+    Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+  };
+
+  app.post('/api/remote/start', async (req, res) => {
+    const url = (req.body || {}).url;
+    try {
+      if (url) await kiosk.navigate(url);
+      await kiosk.startScreencast();
+      remoteActive = true;
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error(`[remote] start failed: ${err.message}`);
+      res.status(502).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/remote/stop', async (req, res) => {
+    remoteActive = false;
+    await kiosk.stopScreencast();
+    lastFrameMeta = null;
+    for (const client of sseClients) client.end();
+    sseClients.clear();
+    res.json({ ok: true });
+  });
+
+  app.post('/api/remote/input', async (req, res) => {
+    const body = req.body || {};
+    try {
+      if (body.type === 'mouse') {
+        const p = frameToPage(Number(body.x) || 0, Number(body.y) || 0);
+        const ev = body.event; // move | down | up
+        const isDown = ev === 'down';
+        const isUp = ev === 'up';
+        const type = isDown ? 'mousePressed' : isUp ? 'mouseReleased' : 'mouseMoved';
+        await kiosk.dispatchMouse({
+          type,
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          button: body.button || 'left',
+          buttons: isDown ? 1 : 0,
+          clickCount: isDown ? 1 : 1,
+        });
+      } else if (body.type === 'text' && typeof body.text === 'string') {
+        await kiosk.insertText(body.text);
+      } else if (body.type === 'key' && KEYMAP[body.key]) {
+        const spec = KEYMAP[body.key];
+        await kiosk.key({ type: 'rawKeyDown', ...spec });
+        if (spec.text !== undefined) {
+          await kiosk.key({ type: 'char', key: spec.key, code: spec.code, text: spec.text, keyCode: spec.vk });
+        }
+        await kiosk.key({ type: 'keyUp', ...spec });
+      } else {
+        return res.status(400).json({ error: 'unsupported input' });
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error(`[remote] input failed: ${err.message}`);
+      res.status(502).json({ error: err.message });
+    }
+  });
+
+  // Server-Sent Events stream of screencast frames (one-way; inputs go over
+  // POST /api/remote/input).
+  app.get('/api/remote/stream', (req, res) => {
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({ connected: kiosk.connected, active: remoteActive })}\n\n`);
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
   });
 
   return { app, kiosk, config };
