@@ -74,7 +74,10 @@ if [[ "$BROWSER_USER" != "$CONTROL_USER" ]]; then
 fi
 
 systemctl daemon-reload
-systemctl enable --now kiosk-control.service
+systemctl enable kiosk-control.service
+# Always (re)start so a fresh unit (e.g. a new User=) takes effect even when
+# the service was already running.
+systemctl restart kiosk-control.service
 
 echo
 echo "==> Done. Control server is running."
