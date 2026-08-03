@@ -6,12 +6,13 @@ const express = require('express');
 
 const { saveConfig } = require('./config');
 const { buildUrl } = require('./url');
-const { listPlans, listPlanGroups, PcoError } = require('./pco');
+const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
+const cecModule = require('./cec');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
-function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
+function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, runScheduler = false, rebootFn = null }) {
   kiosk.idleUrl = idleUrl || `http://127.0.0.1:3000/nowplaying`;
 
   function persist() {
@@ -59,6 +60,8 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       themes: THEMES,
       defaultDisplayType: config.defaultDisplayType,
       defaultTheme: config.defaultTheme,
+      tv: { available: cec.isAvailable(), autoOn: config.tv.autoOn, leadMinutes: config.tv.leadMinutes },
+      reboot: { at: config.reboot.at },
     };
   }
 
@@ -123,12 +126,57 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       }
       config.defaultTheme = value;
     }
+    if (body.tvAutoOn !== undefined) {
+      config.tv.autoOn = !!body.tvAutoOn;
+    }
+    if (body.tvLeadMinutes !== undefined) {
+      const n = Number(body.tvLeadMinutes);
+      if (!Number.isFinite(n) || n < 0 || n > 600) {
+        return res.status(400).json({ error: 'tvLeadMinutes must be between 0 and 600' });
+      }
+      config.tv.leadMinutes = n;
+    }
+    if (body.rebootAt !== undefined) {
+      const value = body.rebootAt;
+      if (value !== null && !/^\d{2}:\d{2}$/.test(String(value))) {
+        return res.status(400).json({ error: 'rebootAt must be "HH:MM" or null' });
+      }
+      config.reboot.at = value === null ? null : String(value);
+    }
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({
       urlTemplate: config.urlTemplate,
       defaultDisplayType: config.defaultDisplayType,
       defaultTheme: config.defaultTheme,
+      tvAutoOn: config.tv.autoOn,
+      tvLeadMinutes: config.tv.leadMinutes,
+      rebootAt: config.reboot.at,
     });
+  });
+
+  // --- TV (HDMI-CEC) power control ---
+
+  app.get('/api/tv/status', async (req, res) => {
+    const available = cec.isAvailable();
+    const status = { available };
+    if (available) {
+      const p = await cec.powerStatus();
+      status.power = p.power;
+      status.error = p.error || null;
+    }
+    res.json(status);
+  });
+
+  app.post('/api/tv/on', async (req, res) => {
+    const r = await cec.powerOn();
+    if (!r.ok) return res.status(502).json({ error: r.error || 'CEC command failed' });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/tv/off', async (req, res) => {
+    const r = await cec.powerOff();
+    if (!r.ok) return res.status(502).json({ error: r.error || 'CEC command failed' });
+    res.json({ ok: true });
   });
 
   // Apply the saved defaults to the kiosk's current live page (no selection
@@ -160,9 +208,22 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       name: (typeof body.name === 'string' && body.name.trim()) || serviceId,
       serviceId,
       displayType: typeof body.displayType === 'string' ? body.displayType.trim() : '',
+      serviceTypeId: null,
     };
     config.services.push(service);
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    // Backfill the service type id (needed for the auto-on scheduler) in the
+    // background; only works when a PCO API key is configured.
+    if (pcoApiKey()) {
+      resolveServiceTypeId(service.serviceId, { apiKey: pcoApiKey() })
+        .then((st) => {
+          if (st && !service.serviceTypeId) {
+            service.serviceTypeId = st;
+            persist();
+          }
+        })
+        .catch(() => {});
+    }
     res.status(201).json({ service });
   });
 
@@ -344,6 +405,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
           name: `${plan.serviceTypeName} \u00b7 ${plan.shortDates || plan.sortDate || id}`,
           serviceId: id,
           displayType: '',
+          serviceTypeId: plan.serviceTypeId || null,
         };
         config.services.push(service);
         existingIds.add(id);
@@ -467,7 +529,23 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
     req.on('close', () => sseClients.delete(res));
   });
 
-  return { app, kiosk, config };
+  // --- Background scheduler (auto-on + daily reboot) ---
+  let scheduler = null;
+  if (runScheduler) {
+    const { createScheduler } = require('./scheduler');
+    scheduler = createScheduler({
+      config,
+      persist,
+      pco: { listPlanTimes, resolveServiceTypeId },
+      cec,
+      apiKey: pcoApiKey,
+      logger,
+      rebootFn,
+    });
+    scheduler.start();
+  }
+
+  return { app, kiosk, config, scheduler };
 }
 
 function renderNowPlaying() {

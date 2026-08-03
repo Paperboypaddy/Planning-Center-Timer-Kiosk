@@ -23,6 +23,7 @@ const { app } = createApp({
   kiosk,
   configPath: CONFIG_PATH,
   idleUrl: `http://127.0.0.1:${PORT}/nowplaying`,
+  runScheduler: true,
 });
 
 kiosk.start();

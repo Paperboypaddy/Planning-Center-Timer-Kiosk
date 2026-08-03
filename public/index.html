@@ -91,6 +91,30 @@
     </div>
   </section>
 
+  <section class="settings">
+    <div class="section-head">
+      <h2>TV &amp; reboot</h2>
+    </div>
+    <div id="tv-status" class="tv-status">Checking CEC\u2026</div>
+    <div class="remote-actions">
+      <button id="tv-on" class="btn btn-primary">TV on</button>
+      <button id="tv-off" class="btn btn-ghost">TV off</button>
+      <button id="tv-refresh" class="btn btn-ghost">Refresh</button>
+    </div>
+    <label class="check">
+      <input type="checkbox" id="tv-auto-on"> Auto-on before services
+    </label>
+    <p class="hint">Turns the TV on before the next service or rehearsal time of any saved service (needs the Planning Center API key).</p>
+    <label for="tv-lead">Turn on this many minutes before</label>
+    <input id="tv-lead" type="number" min="0" max="600" inputmode="numeric">
+    <label for="reboot-at">Daily reboot at <em>(blank = off)</em></label>
+    <input id="reboot-at" type="time">
+    <div class="settings-actions">
+      <button id="save-tv" class="btn btn-primary">Save TV settings</button>
+    </div>
+    <div id="tv-msg" class="msg" role="status"></div>
+  </section>
+
   <p class="footer">Open <code>/nowplaying</code> on the TV's browser to see the current state.</p>
 </main>
 

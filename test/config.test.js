@@ -20,16 +20,33 @@ test('defaults has the verified PCO live URL template', () => {
     services: [],
     defaultDisplayType: null,
     defaultTheme: null,
+    tv: { autoOn: false, leadMinutes: 30 },
+    reboot: { at: null },
     pco: { apiKey: null },
   });
 });
 
-test('normalize keeps display defaults', () => {
-  const cfg = normalize({ defaultDisplayType: 'Lower Third', defaultTheme: 'dark' });
+test('normalize keeps display defaults, TV and reboot settings', () => {
+  const cfg = normalize({
+    defaultDisplayType: 'Lower Third',
+    defaultTheme: 'dark',
+    tv: { autoOn: true, leadMinutes: 45 },
+    reboot: { at: '04:30' },
+  });
   assert.equal(cfg.defaultDisplayType, 'Lower Third');
   assert.equal(cfg.defaultTheme, 'dark');
+  assert.equal(cfg.tv.autoOn, true);
+  assert.equal(cfg.tv.leadMinutes, 45);
+  assert.equal(cfg.reboot.at, '04:30');
   assert.equal(normalize({ defaultTheme: 'pink' }).defaultTheme, null);
+  assert.equal(normalize({ reboot: { at: 'soon' } }).reboot.at, null);
   assert.equal(normalize({ defaultDisplayType: 42 }).defaultDisplayType, null);
+});
+
+test('normalize keeps serviceTypeId on services', () => {
+  const cfg = normalize({ services: [{ id: 'a', serviceId: '1', serviceTypeId: '100' }] });
+  assert.equal(cfg.services[0].serviceTypeId, '100');
+  assert.equal(normalize({ services: [{ id: 'a', serviceId: '1' }] }).services[0].serviceTypeId, null);
 });
 
 test('normalize keeps well-formed services', () => {

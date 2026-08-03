@@ -3,7 +3,7 @@
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { listPlans, listPlanGroups, PcoError } = require('../server/pco');
+const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('../server/pco');
 const { startMockPco } = require('./helpers/mock-pco');
 
 const before = beforeEach || ((fn) => fn);
@@ -106,6 +106,33 @@ test('listPlans throws a PcoError with code rate_limited on 429', async () => {
       assert.equal(err.retryAfter, 10);
       return true;
     });
+  } finally {
+    delete process.env.KIOSK_PCO_API_BASE;
+    await mock.close();
+  }
+});
+
+test('listPlanTimes returns service and rehearsal times for a plan', async () => {
+  const mock = await startMockPco();
+  process.env.KIOSK_PCO_API_BASE = `http://127.0.0.1:${mock.port}/services/v2`;
+  try {
+    const times = await listPlanTimes('90197325', '10', { apiKey: 'k' });
+    assert.equal(times.length, 2);
+    assert.equal(times.find((t) => t.timeType === 'service').startsAt, '2026-08-09T09:00:00-05:00');
+    assert.equal(times.find((t) => t.timeType === 'rehearsal').startsAt, '2026-08-08T18:00:00-05:00');
+  } finally {
+    delete process.env.KIOSK_PCO_API_BASE;
+    await mock.close();
+  }
+});
+
+test('resolveServiceTypeId finds the service type a plan belongs to', async () => {
+  const mock = await startMockPco();
+  process.env.KIOSK_PCO_API_BASE = `http://127.0.0.1:${mock.port}/services/v2`;
+  try {
+    assert.equal(await resolveServiceTypeId('90197331', { apiKey: 'k' }), '10');
+    assert.equal(await resolveServiceTypeId('90211110', { apiKey: 'k' }), '20');
+    assert.equal(await resolveServiceTypeId('99999999', { apiKey: 'k' }), null);
   } finally {
     delete process.env.KIOSK_PCO_API_BASE;
     await mock.close();

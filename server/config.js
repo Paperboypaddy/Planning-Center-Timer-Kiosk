@@ -20,6 +20,10 @@ function defaults() {
     //   defaultTheme        - "light" | "dark" | null (leave as-is)
     defaultDisplayType: null,
     defaultTheme: null,
+    // TV (HDMI-CEC) behavior: auto-on before the next service/rehearsal time,
+    // leadMinutes before. reboot.at is a "HH:MM" daily reboot (null = off).
+    tv: { autoOn: false, leadMinutes: 30 },
+    reboot: { at: null },
     // Optional Planning Center API credentials (personal access token, or
     // "<app_id>:<secret>"). Never exposed back through the API; the effective
     // key is env KIOSK_PCO_API_KEY first, then this.
@@ -45,6 +49,7 @@ function normalize(data) {
         name: (typeof s.name === 'string' && s.name.trim()) || s.serviceId.trim(),
         serviceId: s.serviceId.trim(),
         displayType: typeof s.displayType === 'string' ? s.displayType.trim() : '',
+        serviceTypeId: typeof s.serviceTypeId === 'string' && s.serviceTypeId ? s.serviceTypeId : null,
       }));
   }
 
@@ -53,6 +58,15 @@ function normalize(data) {
 
   cfg.defaultDisplayType = (typeof data.defaultDisplayType === 'string' && data.defaultDisplayType) || null;
   cfg.defaultTheme = data.defaultTheme === 'light' || data.defaultTheme === 'dark' ? data.defaultTheme : null;
+
+  cfg.tv = {
+    autoOn: !!(data.tv && data.tv.autoOn),
+    leadMinutes:
+      data.tv && typeof data.tv.leadMinutes === 'number' && data.tv.leadMinutes >= 0 ? data.tv.leadMinutes : 30,
+  };
+  cfg.reboot = {
+    at: data.reboot && typeof data.reboot.at === 'string' && /^\d{2}:\d{2}$/.test(data.reboot.at) ? data.reboot.at : null,
+  };
 
   if (data.pco && typeof data.pco === 'object') {
     cfg.pco = {

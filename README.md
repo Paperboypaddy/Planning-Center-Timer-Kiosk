@@ -143,6 +143,24 @@ Normal Layout · Countdown Full · Countdown Lower · Lower Third · Fullscreen 
 Theme values: `light` / `dark`. Application is best-effort and never blocks the
 selection — failures are reported in the response (`displayType.applied: false`).
 
+## TV power (HDMI-CEC), auto-on, and reboot schedule
+
+Since the TV is a wall display with no buttons, the panel can control it over
+HDMI-CEC (`cec-client`, from `cec-utils`):
+
+- **Manual**: TV on / TV off / status from the panel's **TV & reboot** section.
+- **Auto-on**: turn the TV on a set number of minutes before the next **service
+  or rehearsal** time of any saved service (from `plan_times` via the PCO API —
+  needs a configured API key). Services imported from PCO carry their service
+  type id automatically; manually-added services get it backfilled in the
+  background when an API key is present.
+- **Reboot schedule**: optionally reboot the Pi once a day (e.g. `04:00`) to
+  keep the kiosk fresh. The scheduler runs inside the control server.
+
+The TV must have CEC enabled, and the Pi needs `sudo apt install cec-utils`.
+CEC commands are best-effort: if no CEC device is present the panel shows
+"unavailable" and nothing breaks.
+
 ## Optional: import services from the Planning Center API
 
 Instead of typing plan IDs, you can connect the control panel to your Planning
@@ -181,8 +199,10 @@ systemd):
   "activeServiceId": "…",
   "defaultDisplayType": null,
   "defaultTheme": null,
+  "tv": { "autoOn": false, "leadMinutes": 30 },
+  "reboot": { "at": null },
   "services": [
-    { "id": "…", "name": "Sunday 9am", "serviceId": "90197325", "displayType": "" }
+    { "id": "…", "name": "Sunday 9am", "serviceId": "90197325", "displayType": "", "serviceTypeId": "…" }
   ],
   "pco": { "apiKey": null }
 }
@@ -206,6 +226,9 @@ systemd):
 | `PUT` | `/api/settings` | Set `{urlTemplate?, defaultDisplayType?, defaultTheme?}` |
 | `POST` | `/api/kiosk/settings/apply` | Apply saved defaults to the kiosk's current page |
 | `POST` | `/api/kiosk/display-type` | `{value}` — set the live page's display type on the kiosk tab now |
+| `GET` | `/api/tv/status` | HDMI-CEC availability + TV power state |
+| `POST` | `/api/tv/on` | Turn the TV on over CEC |
+| `POST` | `/api/tv/off` | Put the TV in standby over CEC |
 | `POST` | `/api/services` | Add a service `{name, serviceId, displayType?}` |
 | `PUT` | `/api/services/:id` | Update a service |
 | `DELETE` | `/api/services/:id` | Delete a service |

@@ -154,4 +154,27 @@ async function listPlans(opts = {}) {
     .sort((a, b) => String(a.sortDate).localeCompare(String(b.sortDate)));
 }
 
-module.exports = { PcoError, listPlans, listPlanGroups };
+// Service + rehearsal times for one plan (used by the auto-on scheduler).
+async function listPlanTimes(planId, serviceTypeId, { apiKey, signal } = {}) {
+  const data = await pagingGet(`/service_types/${serviceTypeId}/plans/${planId}/plan_times`, { apiKey, signal });
+  return data.map((t) => {
+    const a = t.attributes || {};
+    return { id: t.id, timeType: a.time_type || null, startsAt: a.starts_at || null };
+  });
+}
+
+// Find which service type a plan belongs to (searches each service type's
+// plans). Used to backfill serviceTypeId for manually-added services.
+async function resolveServiceTypeId(planId, { apiKey, signal } = {}) {
+  const types = await pagingGet('/service_types', { apiKey, signal });
+  for (const type of types) {
+    const found = await pagingGet(
+      `/service_types/${type.id}/plans?where[id]=${encodeURIComponent(planId)}&per_page=1`,
+      { apiKey, signal }
+    );
+    if (found.length) return type.id;
+  }
+  return null;
+}
+
+module.exports = { PcoError, listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId };

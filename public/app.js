@@ -90,6 +90,7 @@
     renderPco();
     syncRemoteState();
     populateDisplayTypes();
+    syncTvSettings();
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -190,6 +191,71 @@
     }
     refresh();
   });
+
+  // --- TV (CEC) + reboot ---
+
+  const tvStatusEl = document.getElementById('tv-status');
+  const tvAutoOnEl = document.getElementById('tv-auto-on');
+  const tvLeadEl = document.getElementById('tv-lead');
+  const rebootAtEl = document.getElementById('reboot-at');
+  const tvMsgEl = document.getElementById('tv-msg');
+
+  function setTvMsg(text, cls) {
+    tvMsgEl.textContent = text;
+    tvMsgEl.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  async function refreshTvStatus() {
+    try {
+      const r = await api('/api/tv/status');
+      if (!r.available) {
+        tvStatusEl.textContent = 'CEC unavailable (cec-utils not installed or no HDMI-CEC device)';
+        tvStatusEl.className = 'tv-status tv-off';
+      } else {
+        const power = r.power === 'on' ? 'ON' : r.power === 'standby' ? 'STAND BY' : 'unknown';
+        tvStatusEl.textContent = 'TV power: ' + power;
+        tvStatusEl.className = 'tv-status ' + (r.power === 'on' ? 'tv-on' : 'tv-off');
+      }
+    } catch (err) {
+      tvStatusEl.textContent = 'CEC status unavailable';
+      tvStatusEl.className = 'tv-status tv-off';
+    }
+  }
+
+  document.getElementById('tv-on').addEventListener('click', async () => {
+    try { await api('/api/tv/on', { method: 'POST' }); setTvMsg('TV on command sent.', 'ok'); } catch (e) { setTvMsg('Failed: ' + e.message, 'err'); }
+    refreshTvStatus();
+  });
+  document.getElementById('tv-off').addEventListener('click', async () => {
+    try { await api('/api/tv/off', { method: 'POST' }); setTvMsg('TV off command sent.', 'ok'); } catch (e) { setTvMsg('Failed: ' + e.message, 'err'); }
+    refreshTvStatus();
+  });
+  document.getElementById('tv-refresh').addEventListener('click', refreshTvStatus);
+
+  document.getElementById('save-tv').addEventListener('click', async () => {
+    const rebootAt = rebootAtEl.value || null;
+    try {
+      await api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          tvAutoOn: tvAutoOnEl.checked,
+          tvLeadMinutes: Number(tvLeadEl.value) || 0,
+          rebootAt,
+        }),
+      });
+      setTvMsg('TV settings saved.', 'ok');
+    } catch (err) {
+      setTvMsg('Save failed: ' + err.message, 'err');
+    }
+    refresh();
+  });
+
+  function syncTvSettings() {
+    if (!state) return;
+    tvAutoOnEl.checked = !!(state.tv && state.tv.autoOn);
+    tvLeadEl.value = (state.tv && state.tv.leadMinutes) || 0;
+    rebootAtEl.value = (state.reboot && state.reboot.at) || '';
+  }
 
   // --- Planning Center import section ---
 
@@ -488,5 +554,6 @@
 
   render(); // syncRemoteState is invoked via render()
   refresh();
+  refreshTvStatus();
   setInterval(refresh, 5000);
 })();

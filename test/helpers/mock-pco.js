@@ -38,6 +38,16 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
     ],
   };
 
+  const planTimesByPlan = {
+    '90197325': [
+      { id: 't1', time_type: 'rehearsal', starts_at: '2026-08-08T18:00:00-05:00' },
+      { id: 't2', time_type: 'service', starts_at: '2026-08-09T09:00:00-05:00' },
+    ],
+    '90211110': [
+      { id: 't3', time_type: 'service', starts_at: '2026-08-12T19:00:00-05:00' },
+    ],
+  };
+
   const requestedPaths = [];
 
   const server = http.createServer((req, res) => {
@@ -91,12 +101,24 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
 
     const m = /^\/services\/v2\/service_types\/([^/]+)\/plans$/.exec(url.pathname);
     if (m) {
-      const plans = (plansByType[m[1]] || []).map((p) => ({
+      let plans = (plansByType[m[1]] || []).map((p) => ({
         type: 'Plan',
         id: p.id,
         attributes: { sort_date: p.sort_date, short_dates: p.short_dates, title: p.title },
       }));
+      const whereId = url.searchParams.get('where[id]');
+      if (whereId) plans = plans.filter((p) => p.id === whereId);
       return api({ data: plans, meta: { total_count: plans.length } });
+    }
+
+    const pm = /^\/services\/v2\/service_types\/([^/]+)\/plans\/([^/]+)\/plan_times$/.exec(url.pathname);
+    if (pm) {
+      const times = (planTimesByPlan[pm[2]] || []).map((t) => ({
+        type: 'PlanTime',
+        id: t.id,
+        attributes: { time_type: t.time_type, starts_at: t.starts_at },
+      }));
+      return api({ data: times, meta: { total_count: times.length } });
     }
 
     res.statusCode = 404;
