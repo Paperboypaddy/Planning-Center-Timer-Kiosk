@@ -38,7 +38,7 @@ find_chromium() {
 CHROME="$(find_chromium)"
 PROFILE_DIR="${KIOSK_PROFILE_DIR:-$HOME/.config/kiosk-chromium}"
 DEBUG_PORT="${KIOSK_DEBUG_PORT:-9222}"
-URL="${KIOSK_URL:-http://127.0.0.1:3000/nowplaying}"
+URL="${KIOSK_URL:-http://127.0.0.1:3001/nowplaying}"
 
 mkdir -p "$PROFILE_DIR"
 

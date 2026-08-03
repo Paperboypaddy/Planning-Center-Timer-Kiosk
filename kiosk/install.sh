@@ -79,9 +79,48 @@ systemctl enable kiosk-control.service
 # the service was already running.
 systemctl restart kiosk-control.service
 
+# --- Panel access: Caddy reverse proxy with HTTPS + Basic Auth ---
+# The control server binds to 127.0.0.1 only, so the panel is NOT exposed in
+# the clear. Caddy serves it on the LAN over HTTPS with a shared login.
+# The kiosk browser keeps using http://127.0.0.1:3001 directly (localhost,
+# no proxy, no auth).
+PANEL_USER="${KIOSK_PANEL_USER:-kiosk}"
+if [[ -z "${KIOSK_PANEL_PASSWORD:-}" ]]; then
+  PANEL_PASSWORD="$(openssl rand -base64 18 2>/dev/null | tr -d '/+=' | head -c 20 || true)"
+fi
+PANEL_PASSWORD="${KIOSK_PANEL_PASSWORD:-${PANEL_PASSWORD:-changeme}}"
+
+if ! command -v caddy >/dev/null 2>&1; then
+  echo "==> Installing Caddy"
+  curl -fsSL -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+    https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+    > /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -qq
+  apt-get install -y -qq caddy
+fi
+
+PANEL_HASH="$(caddy hash-password --plaintext "$PANEL_PASSWORD")"
+cat > /etc/caddy/Caddyfile <<EOF
+:3000 {
+    tls internal
+    basic_auth {
+        $PANEL_USER $PANEL_HASH
+    }
+    reverse_proxy 127.0.0.1:3001 {
+        flush_interval -1
+    }
+}
+EOF
+systemctl enable --now caddy
+
 echo
-echo "==> Done. Control server is running."
-echo "    Control panel:   http://$(hostname).local:3000"
+echo "==> Done. Control server is running (localhost only)."
+echo "    Control panel:   https://$(hostname).local:3000"
+echo "    Panel login:     user: $PANEL_USER"
+echo "    Panel password:  $PANEL_PASSWORD"
+echo "    (the panel uses a self-signed certificate - accept the browser"
+echo "     warning once per device, and your browser remembers the login)"
 echo
 echo "==> Next steps (see $DEST_DIR/docs/SETUP.md for details):"
 echo

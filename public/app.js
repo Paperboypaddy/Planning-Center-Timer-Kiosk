@@ -630,4 +630,5 @@
   refresh();
   refreshTvStatus();
   setInterval(refresh, 5000);
+  setInterval(refreshTvStatus, 30000); // CEC status is slower to query
 })();

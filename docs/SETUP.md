@@ -107,7 +107,7 @@ bar for the *exact* final URL.
 sudo systemctl enable --now kiosk-browser.service
 ```
 
-Chromium now runs fullscreen at `http://127.0.0.1:3000/nowplaying` (the idle
+Chromium now runs fullscreen at `http://127.0.0.1:3001/nowplaying` (the idle
 page) with CDP on `127.0.0.1:9222`. If it ever crashes, systemd restarts it
 and the control server re-navigates it to the right page automatically.
 
@@ -117,15 +117,21 @@ and the control server re-navigates it to the right page automatically.
 panel is at:
 
 ```
-http://<hostname>.local:3000
+https://<hostname>.local:3000
 ```
 
-e.g. `http://orangepizero3.local:3000` or `http://raspberrypi.local:3000`.
+e.g. `https://orangepizero3.local:3000` or `https://raspberrypi.local:3000`.
 Find the hostname with `hostname` on the device. The phone/laptop must be on
 the **same Wi-Fi/LAN**.
 
+The panel is served through **Caddy** with HTTPS (self-signed certificate) and
+**HTTP Basic Auth**. The username/password were printed at install time
+(user/pass shown by `kiosk/install.sh`). On first visit each device will warn
+about the self-signed certificate — accept it once, then your browser
+remembers both the exception and the login.
+
 If `.local` doesn't resolve (some Android/iOS edge cases), use the IP directly:
-`ip -4 addr show` → open `http://<ip>:3000`.
+`ip -4 addr show` → open `https://<ip>:3000`.
 
 ## 6. Add services
 
@@ -182,8 +188,9 @@ Notes:
 
 ## Troubleshooting
 
-- **Control panel unreachable** → `systemctl status kiosk-control.service`,
-  `journalctl -u kiosk-control -f`, check port 3000 and the `.local` name.
+- **Control panel unreachable** → `systemctl status caddy kiosk-control`,
+  `journalctl -u caddy -f`, check Caddy on :3000 and the `.local` name; the
+  control server itself is on 127.0.0.1:3001.
 - **Kiosk shows blank/error** → the panel's status badge shows "kiosk offline"
   if CDP is disconnected. Check `systemctl status kiosk-browser.service` and
   that Chromium is running (`pgrep -a chromium`).

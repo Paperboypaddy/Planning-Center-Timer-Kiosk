@@ -14,7 +14,7 @@ const cecModule = require('./cec');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, runScheduler = false, rebootFn = null }) {
-  kiosk.idleUrl = idleUrl || `http://127.0.0.1:3000/nowplaying`;
+  kiosk.idleUrl = idleUrl || `http://127.0.0.1:3001/nowplaying`;
 
   function persist() {
     try {

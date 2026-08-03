@@ -12,12 +12,12 @@ trivial from a phone or laptop on the same network — no SSH, no touching the T
 ## How it works
 
 ```
-┌─────────────┐   HTTP (JSON)    ┌──────────────────┐   Chrome DevTools Protocol   ┌───────────────┐
-│ Phone/laptop│ ───────────────► │ Control server   │ ──────────────────────────► │ Chromium kiosk │
-│ (browser)   │   control panel  │ (Node.js/Express)│  Page.navigate (true top-   │  (the TV)      │
-│ :3000       │                  │                  │  level navigation, NOT an   │   :9222        │
-└─────────────┘                  │   config.json    │  iframe — unaffected by     │   user-data-dir│
-                                 └──────────────────┘  X-Frame-Options/CSP)       └───────────────┘
+┌─────────────┐   HTTPS+Auth   ┌───────────┐  HTTP    ┌──────────────────┐  Chrome DevTools   ┌───────────────┐
+│ Phone/laptop│ ─────────────► │ Caddy     │ ───────► │ Control server   │ ────────────────► │ Chromium kiosk │
+│ (browser)   │  control panel │ :3000     │          │ 127.0.0.1:3001    │  Page.navigate     │  (the TV)      │
+└─────────────┘  (Basic Auth +  │ (reverse  │          │ (Node.js/Express) │  (true top-level   │   :9222        │
+                 self-signed   │  proxy)   │          │  config.json      │  navigation, NOT   │  user-data-dir │
+                 TLS)          └───────────┘          └──────────────────┘  an iframe)         └───────────────┘
 ```
 
 - **Control server** (`server/`) — Express app that stores the list of
@@ -66,17 +66,17 @@ Requires Node.js >= 18 and a Chromium browser.
 
 ```bash
 npm install
-npm start                 # control server on http://localhost:3000
+npm start                 # control server on http://localhost:3001
 ```
 
-Open `http://<hostname>:3000` for the control panel, and point a Chromium tab
-at `http://localhost:3000/nowplaying` with remote debugging enabled to simulate
-the kiosk:
+In development (no Caddy), open `http://localhost:3001` for the control panel
+and point a Chromium tab at `http://localhost:3001/nowplaying` with remote
+debugging enabled to simulate the kiosk:
 
 ```bash
 chromium --kiosk --remote-debugging-port=9222 \
   --user-data-dir="$HOME/.config/kiosk-chromium" \
-  http://127.0.0.1:3000/nowplaying
+  http://127.0.0.1:3001/nowplaying
 ```
 
 On the control panel, add a service (name + PCO plan ID), tap it, and watch the
@@ -178,7 +178,7 @@ Center account and pull upcoming plans straight into the service list. This is
    - set `KIOSK_PCO_API_KEY` in the environment (recommended — see the
      `[Service]` `Environment`/`EnvironmentFile` in the systemd unit), **or**
    - paste the key into the control panel's **Planning Center import** section
-     (it is saved to the config file — protect it: `chmod 600` / root-owned).
+     (it is saved to the config file — owned by the kiosk control user).
 
 The importer calls:
 
@@ -213,7 +213,7 @@ systemd):
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `KIOSK_PORT` | `3000` | Control panel / API port |
+| `KIOSK_PORT` | `3001` | Local control-server port (localhost only; the panel is exposed via Caddy on :3000) |
 | `KIOSK_CONFIG` | `./config.json` | Path to the JSON config file |
 | `KIOSK_CDP_HOST` | `127.0.0.1` | Host Chromium's CDP listens on |
 | `KIOSK_CDP_PORT` | `9222` | Chromium's remote-debugging port |
@@ -281,21 +281,27 @@ as Chromium reconnects.
   `html,body{background-color:#000}` into every new document via CDP
   (`Page.addScriptToEvaluateOnNewDocument`), which covers sites that paint a
   white shell before their theme loads (e.g. the PCO SPA).
-- **mDNS**: install `avahi-daemon` so `http://<hostname>.local:3000` works
-  from a phone without remembering an IP.
+- **mDNS**: install `avahi-daemon` so the panel is reachable at
+  `https://<hostname>.local:3000` (HTTPS + Basic Auth via Caddy) from a phone
+  without remembering an IP.
 
 ## Security notes
 
 - CDP is bound to **127.0.0.1** only, so only local processes can drive the
   browser tab.
-- The control panel has **no authentication** — it is intended for a trusted,
-  internal network only. If you expose it beyond that, put it behind a reverse
-  proxy with auth (noted as a possible follow-up).
+- The control server itself binds to **127.0.0.1** only. `install.sh` sets up
+  a **Caddy** reverse proxy that exposes the panel on the LAN over **HTTPS**
+  (self-signed certificate) behind **HTTP Basic Auth** (one shared login,
+  printed at install time). The one-time Planning Center login and any typed
+  passwords travel over TLS; expect a certificate warning on first visit per
+  device. If you need stronger auth (per-user logins, SSO), put a real
+  reverse proxy in front of Caddy — noted as a possible follow-up.
 - The control server runs as an **unprivileged** user (`kiosk` by default).
   Its only elevated permission is a narrow sudoers entry that allows exactly
   `systemctl reboot` (for the reboot schedule) — see `kiosk/install.sh`.
-- The **remote control** streams the kiosk browser and forwards keystrokes, so
-  anything typed on the panel (including PCO passwords) travels over the LAN.
-  Keep the panel on a trusted network and off the public internet.
-- The optional PCO API key is stored in the config file (root-owned under
-  systemd) or read from an env var; it is never returned by the API.
+- The **remote control** streams the kiosk browser and forwards keystrokes —
+  over HTTPS to Caddy, so it is encrypted on the wire. The panel remains
+  LAN-only and is protected by the shared Basic Auth login.
+- The optional PCO API key is stored in the config file, owned by the kiosk
+  control user (not root); it is never returned by the API. It can also be
+  supplied via the `KIOSK_PCO_API_KEY` env var.

@@ -10,7 +10,7 @@ WorkingDirectory=@DEST@
 # sudoers entry (kiosk-control/install.sh writes /etc/sudoers.d/kiosk-reboot).
 # Adjust @CONTROL_USER@ to your kiosk control user.
 User=@CONTROL_USER@
-Environment=KIOSK_PORT=3000
+Environment=KIOSK_PORT=3001
 Environment=KIOSK_CONFIG=@CONFIG_DIR@/config.json
 Environment=KIOSK_CDP_HOST=127.0.0.1
 Environment=KIOSK_CDP_PORT=9222

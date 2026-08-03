@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const { KioskDriver } = require('../server/kiosk');
 const { startMockCdp } = require('./helpers/mock-cdp');
 
-const IDLE = 'http://127.0.0.1:3000/nowplaying';
+const IDLE = 'http://127.0.0.1:3001/nowplaying';
 const SERVICE_URL = 'https://services.planningcenteronline.com/live/90197325';
 
 function delay(ms) {
