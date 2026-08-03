@@ -14,7 +14,7 @@ trivial from a phone or laptop on the same network — no SSH, no touching the T
 ```
 ┌─────────────┐   HTTPS+Auth   ┌───────────┐  HTTP    ┌──────────────────┐  Chrome DevTools   ┌───────────────┐
 │ Phone/laptop│ ─────────────► │ Caddy     │ ───────► │ Control server   │ ────────────────► │ Chromium kiosk │
-│ (browser)   │  control panel │ :3000     │          │ 127.0.0.1:3001    │  Page.navigate     │  (the TV)      │
+│ (browser)   │  control panel │ :443      │          │ 127.0.0.1:3001    │  Page.navigate     │  (the TV)      │
 └─────────────┘  (Basic Auth +  │ (reverse  │          │ (Node.js/Express) │  (true top-level   │   :9222        │
                  self-signed   │  proxy)   │          │  config.json      │  navigation, NOT   │  user-data-dir │
                  TLS)          └───────────┘          └──────────────────┘  an iframe)         └───────────────┘
@@ -213,7 +213,7 @@ systemd):
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `KIOSK_PORT` | `3001` | Local control-server port (localhost only; the panel is exposed via Caddy on :3000) |
+| `KIOSK_PORT` | `3001` | Local control-server port (localhost only; the panel is exposed via Caddy on :443) |
 | `KIOSK_CONFIG` | `./config.json` | Path to the JSON config file |
 | `KIOSK_CDP_HOST` | `127.0.0.1` | Host Chromium's CDP listens on |
 | `KIOSK_CDP_PORT` | `9222` | Chromium's remote-debugging port |
@@ -282,7 +282,7 @@ as Chromium reconnects.
   (`Page.addScriptToEvaluateOnNewDocument`), which covers sites that paint a
   white shell before their theme loads (e.g. the PCO SPA).
 - **mDNS**: install `avahi-daemon` so the panel is reachable at
-  `https://<hostname>.local:3000` (HTTPS + Basic Auth via Caddy) from a phone
+  `https://<hostname>.local` (HTTPS + Basic Auth via Caddy on :443) from a phone
   without remembering an IP.
 
 ## Security notes

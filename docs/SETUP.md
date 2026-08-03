@@ -117,10 +117,10 @@ and the control server re-navigates it to the right page automatically.
 panel is at:
 
 ```
-https://<hostname>.local:3000
+https://<hostname>.local
 ```
 
-e.g. `https://orangepizero3.local:3000` or `https://raspberrypi.local:3000`.
+e.g. `https://orangepizero3.local` or `https://raspberrypi.local`.
 Find the hostname with `hostname` on the device. The phone/laptop must be on
 the **same Wi-Fi/LAN**.
 
@@ -131,7 +131,22 @@ about the self-signed certificate — accept it once, then your browser
 remembers both the exception and the login.
 
 If `.local` doesn't resolve (some Android/iOS edge cases), use the IP directly:
-`ip -4 addr show` → open `https://<ip>:3000`.
+`ip -4 addr show` → open `https://<ip>`.
+
+### Remote access (Tailscale, optional)
+
+The installer can install and set up Tailscale (say yes when it prompts, or
+run with `KIOSK_TAILSCALE=yes`). The panel remains available on the local
+wifi/ethernet network exactly as above; Tailscale just lets you reach the Pi
+remotely. After the installer finishes:
+
+```bash
+sudo tailscale up          # open the printed link to authenticate
+ssh raspi@<tailnet-ip>     # or add --ssh for Tailscale's managed SSH
+```
+
+Once connected, the panel is also reachable from your tailnet at
+`https://<machine-name>.ts.net` (same login, self-signed-cert warning).
 
 ## 6. Add services
 
@@ -189,7 +204,7 @@ Notes:
 ## Troubleshooting
 
 - **Control panel unreachable** → `systemctl status caddy kiosk-control`,
-  `journalctl -u caddy -f`, check Caddy on :3000 and the `.local` name; the
+  `journalctl -u caddy -f`, check Caddy on :443 and the `.local` name; the
   control server itself is on 127.0.0.1:3001.
 - **Kiosk shows blank/error** → the panel's status badge shows "kiosk offline"
   if CDP is disconnected. Check `systemctl status kiosk-browser.service` and

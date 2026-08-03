@@ -9,10 +9,14 @@
 #   - avahi-daemon (for http://<hostname>.local:3000)
 #
 # Adjust with env vars:
-#   KIOSK_DEST_DIR       install location        (default /opt/kiosk)
-#   KIOSK_CONFIG_DIR     config + profile dir    (default /var/lib/kiosk)
-#   KIOSK_BROWSER_USER   user owning X session   (default kiosk)
-#   KIOSK_CONTROL_USER   control server user     (default kiosk)
+#   KIOSK_DEST_DIR           install location        (default /opt/kiosk)
+#   KIOSK_CONFIG_DIR         config + profile dir    (default /var/lib/kiosk)
+#   KIOSK_BROWSER_USER       user owning X session   (default kiosk)
+#   KIOSK_CONTROL_USER       control server user     (default kiosk)
+#   KIOSK_PANEL_USER         panel login username    (default kiosk)
+#   KIOSK_PANEL_PASSWORD     panel login password    (default: random)
+#   KIOSK_TAILSCALE          "yes"/"no" install Tailscale (default: prompt)
+#   KIOSK_TAILSCALE_AUTHKEY  Tailscale auth key, if you have one
 set -euo pipefail
 
 # Project root (parent of this script's directory: .../kiosk/install.sh).
@@ -118,7 +122,7 @@ chmod 644 /etc/caddy/kiosk-cert.pem
 chmod 600 /etc/caddy/kiosk-key.pem
 
 cat > /etc/caddy/Caddyfile <<EOF
-:3000 {
+:443 {
     tls /etc/caddy/kiosk-cert.pem /etc/caddy/kiosk-key.pem
     basic_auth {
         $PANEL_USER $PANEL_HASH
@@ -131,13 +135,39 @@ EOF
 systemctl enable caddy
 systemctl restart caddy
 
+# --- Tailscale (optional, for remote access) ---
+# The panel stays available on the local wifi/ethernet network; Tailscale is
+# just for reaching the Pi remotely. Prompt unless KIOSK_TAILSCALE is set.
+if [[ -z "${KIOSK_TAILSCALE:-}" && -t 0 ]]; then
+  read -r -p "Install and set up Tailscale for remote access? [y/N] " KIOSK_TAILSCALE
+fi
+case "${KIOSK_TAILSCALE:-no}" in
+  y|Y|yes|YES|1)
+    if ! command -v tailscale >/dev/null 2>&1; then
+      echo "==> Installing Tailscale"
+      curl -fsSL https://tailscale.com/install.sh | sh
+    fi
+    systemctl enable --now tailscaled
+    if [[ -n "${KIOSK_TAILSCALE_AUTHKEY:-}" ]]; then
+      echo "==> Connecting to the tailnet"
+      tailscale up --authkey "$KIOSK_TAILSCALE_AUTHKEY"
+    else
+      echo "==> Tailscale installed. Connect it to your tailnet with:"
+      echo "    sudo tailscale up"
+      echo "    (open the printed link to authenticate; add --ssh for Tailscale's"
+      echo "     managed SSH). The panel stays on this network at"
+      echo "     https://$(hostname).local AND becomes reachable from your tailnet."
+    fi
+    ;;
+esac
+
 echo
 echo "==> Done. Control server is running (localhost only)."
-echo "    Control panel:   https://$(hostname).local:3000"
+echo "    Control panel:   https://$(hostname).local"
 echo "    Panel login:     user: $PANEL_USER"
 echo "    Panel password:  $PANEL_PASSWORD"
-echo "    (the panel uses a self-signed certificate - accept the browser"
-echo "     warning once per device, and your browser remembers the login)"
+echo "    (standard HTTPS port 443; self-signed certificate - accept the"
+echo "     browser warning once per device, and your browser remembers the login)"
 echo
 echo "==> Next steps (see $DEST_DIR/docs/SETUP.md for details):"
 echo
