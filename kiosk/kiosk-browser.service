@@ -1,0 +1,22 @@
+[Unit]
+Description=Kiosk Browser (Chromium, fullscreen)
+Documentation=file://@DEST@/docs/SETUP.md
+After=graphical.target network.target
+Wants=network.target
+
+[Service]
+Type=simple
+# Run as the user who owns the X session. Adjust User and XAUTHORITY to match
+# your autologin setup (e.g. pi on Raspberry Pi OS, kiosk on Armbian).
+User=@BROWSER_USER@
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/@BROWSER_USER@/.Xauthority
+Environment=KIOSK_PROFILE_DIR=@CONFIG_DIR@/chromium-profile
+Environment=KIOSK_URL=http://127.0.0.1:3000/nowplaying
+Environment=KIOSK_DEBUG_PORT=9222
+ExecStart=@DEST@/kiosk/launch-kiosk.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

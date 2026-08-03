@@ -1,0 +1,25 @@
+[Unit]
+Description=Kiosk Control Server (Planning Center countdown)
+Documentation=file://@DEST@/docs/SETUP.md
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@DEST@
+Environment=KIOSK_PORT=3000
+Environment=KIOSK_CONFIG=@CONFIG_DIR@/config.json
+Environment=KIOSK_CDP_HOST=127.0.0.1
+Environment=KIOSK_CDP_PORT=9222
+# Optional: Planning Center API key (personal access token or app_id:secret)
+# for the "Planning Center import" feature. Prefer a root-only file:
+#   EnvironmentFile=/etc/kiosk/pco.env        (contains KIOSK_PCO_API_KEY=…)
+# Adjust the path if `which node` reports something else on your distro.
+ExecStart=@NODE_BIN@ @DEST@/server/index.js
+Restart=on-failure
+RestartSec=5
+# Light hardening; /var/lib/kiosk stays writable for the config file.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

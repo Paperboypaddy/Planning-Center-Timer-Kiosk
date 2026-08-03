@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>Kiosk Control</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Kiosk Control</h1>
+    <span class="tagline">Planning Center countdown</span>
+  </div>
+  <span id="status-badge" class="badge">...</span>
+</header>
+
+<main>
+  <section>
+    <div class="section-head">
+      <h2>Services</h2>
+      <button id="add-service" class="btn btn-primary">+ Add service</button>
+    </div>
+    <div id="service-grid" class="grid"></div>
+    <button id="idle-button" class="btn btn-ghost btn-block">Show idle page</button>
+  </section>
+
+  <section class="settings">
+    <div class="section-head">
+      <h2>Settings</h2>
+    </div>
+    <label for="url-template">URL template</label>
+    <input id="url-template" type="text" spellcheck="false" autocomplete="off">
+    <p class="hint">The PCO plan ID replaces <code>{serviceId}</code>. The optional <code>{displayType}</code> token is replaced with each service's display type.</p>
+    <button id="save-template" class="btn btn-primary">Save template</button>
+    <div id="save-template-msg" class="msg" role="status"></div>
+  </section>
+
+  <section class="settings">
+    <div class="section-head">
+      <h2>Planning Center import</h2>
+    </div>
+    <p class="hint">Optionally connect your Planning Center account to pull upcoming services straight into the list. The API key is stored in the config file on this device (or use the <code>KIOSK_PCO_API_KEY</code> env var).</p>
+    <div id="pco-unconfigured">
+      <label for="pco-key">API key <em>(personal access token, or <code>app_id:secret</code>)</em></label>
+      <input id="pco-key" type="password" placeholder="paste your Planning Center API key" autocomplete="off">
+      <button id="pco-save-key" class="btn btn-primary">Save key</button>
+      <div id="pco-key-msg" class="msg" role="status"></div>
+    </div>
+    <div id="pco-import" class="hidden">
+      <div id="pco-status-line" class="msg"></div>
+      <button id="pco-load" class="btn btn-ghost">Load upcoming plans</button>
+      <div id="pco-list" class="pco-list"></div>
+      <button id="pco-add-selected" class="btn btn-primary">Add selected</button>
+    </div>
+  </section>
+
+  <p class="footer">Open <code>/nowplaying</code> on the TV's browser to see the current state.</p>
+</main>
+
+<dialog id="service-dialog">
+  <form id="service-form">
+    <h2 id="dialog-title">Add service</h2>
+    <label for="f-name">Name</label>
+    <input id="f-name" type="text" placeholder="e.g. Sunday 9am" autocomplete="off" required>
+    <label for="f-serviceid">PCO service/plan ID</label>
+    <input id="f-serviceid" type="text" inputmode="numeric" placeholder="e.g. 90197325" autocomplete="off" required>
+    <label for="f-displaytype">Display type <em>(optional)</em></label>
+    <input id="f-displaytype" type="text" placeholder="only used if the template has {displayType}" autocomplete="off">
+    <div class="dialog-actions">
+      <button type="button" id="dialog-cancel" class="btn btn-ghost">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>
