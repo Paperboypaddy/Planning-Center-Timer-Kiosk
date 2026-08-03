@@ -5,6 +5,10 @@ const CDP = require('chrome-remote-interface');
 
 const DEFAULT_RECONNECT_MS = 5000;
 
+// The live-page layout options offered by the Planning Center live controller
+// toolbar ("display type" for a service). Stored per-service in `displayType`.
+const DISPLAY_TYPES = ['Normal Layout', 'Countdown Full', 'Countdown Lower', 'Lower Third', 'Fullscreen Overview'];
+
 // Drives the kiosk's Chromium tab over the Chrome DevTools Protocol.
 //
 // Chromium runs with --remote-debugging-port=9222 (localhost only) and a
@@ -224,6 +228,69 @@ class KioskDriver extends EventEmitter {
     });
   }
 
+  // Evaluate JS in the kiosk tab and return the (by-value) result.
+  async evaluate(expression) {
+    const client = await this.connect();
+    const resp = await client.send('Runtime.evaluate', { expression, returnByValue: true });
+    if (resp.exceptionDetails) throw new Error('page evaluation failed');
+    return resp.result && resp.result.value;
+  }
+
+  // Set the live page's display type (the layout dropdown in the PCO live
+  // controller toolbar). The dropdown only renders in a desktop-size viewport,
+  // so we briefly emulate one, select the layout, then restore the native
+  // viewport. The selection is saved per plan by Planning Center, so it
+  // persists for the audience/presentation view on the TV.
+  async setDisplayType(value, { restoreViewport = true } = {}) {
+    if (!DISPLAY_TYPES.includes(value)) {
+      throw new Error(`unknown display type "${value}"; expected one of: ${DISPLAY_TYPES.join(', ')}`);
+    }
+    const client = await this.connect();
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 1920,
+      height: 1080,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    const emulated = true;
+    try {
+      const target = JSON.stringify(value);
+      const deadline = Date.now() + 15000;
+      for (;;) {
+        const r = await this.evaluate(`(() => {
+          const LAYOUT = ${JSON.stringify(DISPLAY_TYPES)};
+          const groups = [...document.querySelectorAll('.LiveToolbar-control.dropdown-group')];
+          const g = groups.find(x => [...x.querySelectorAll('.dropdown-menu li span')]
+            .some(s => LAYOUT.includes((s.textContent || '').trim())));
+          if (!g) return { state: 'waiting' };
+          const trigger = ((g.querySelector('.dropdown-trigger') || {}).textContent || '').trim();
+          if (trigger === ${target}) return { state: 'done' };
+          const span = [...g.querySelectorAll('.dropdown-menu li span')]
+            .find(s => (s.textContent || '').trim() === ${target});
+          if (!span) return { state: 'bad-value', items: [...g.querySelectorAll('.dropdown-menu li span')].map(s => (s.textContent || '').trim()) };
+          span.click();
+          return { state: 'clicked' };
+        })()`);
+        if (r && r.state === 'done') return { ok: true };
+        if (r && r.state === 'bad-value') {
+          throw new Error(`display type "${value}" not in the live page menu: ${(r.items || []).join(', ')}`);
+        }
+        if (Date.now() > deadline) {
+          throw new Error(
+            r && r.state === 'waiting'
+              ? 'live controller toolbar not available on this page'
+              : `could not set display type "${value}"`
+          );
+        }
+        await sleep(500);
+      }
+    } finally {
+      if (restoreViewport && emulated) {
+        try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* tab may have navigated */ }
+      }
+    }
+  }
+
   stop() {
     this.stopped = true;
     if (this.client) this.client.close();
@@ -246,4 +313,4 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { KioskDriver, normalizeUrl };
+module.exports = { KioskDriver, normalizeUrl, DISPLAY_TYPES };

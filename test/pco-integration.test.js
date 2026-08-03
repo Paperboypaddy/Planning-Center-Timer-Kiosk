@@ -60,10 +60,13 @@ test('PCO import flow: status, key save, plans, import with dedupe, clear', asyn
     assert.equal(r.body.pco.configured, true);
     assert.equal('apiKey' in r.body.pco, false);
 
-    // List upcoming plans
+    // List upcoming plans, segmented into folders -> service types
+    const flatten = (groups) => groups.flatMap((g) => g.serviceTypes.flatMap((st) => st.plans));
     r = await ctx.send('/api/pco/plans', 'GET');
-    assert.equal(r.body.plans.length, 3);
-    assert.equal(r.body.plans.some((p) => p.existing), false);
+    assert.ok(r.body.groups.length >= 1);
+    const allPlans = flatten(r.body.groups);
+    assert.equal(allPlans.length, 4);
+    assert.equal(allPlans.some((p) => p.existing), false);
 
     // Import two plans
     r = await ctx.send('/api/pco/import', 'POST', { planIds: ['90197325', '90211110'] });
@@ -72,7 +75,7 @@ test('PCO import flow: status, key save, plans, import with dedupe, clear', asyn
 
     // They now show as existing
     r = await ctx.send('/api/pco/plans', 'GET');
-    const existingIds = r.body.plans.filter((p) => p.existing).map((p) => p.id);
+    const existingIds = flatten(r.body.groups).filter((p) => p.existing).map((p) => p.id);
     assert.deepEqual(existingIds, ['90197325', '90211110']);
 
     // Re-import is a no-op (dedupe)

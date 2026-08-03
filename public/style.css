@@ -153,7 +153,8 @@ section { margin-bottom: 2rem; }
 label { display: block; font-size: 0.9rem; margin: 0.9rem 0 0.35rem; font-weight: 600; }
 label em { color: var(--muted); font-weight: 400; }
 
-input[type="text"] {
+input[type="text"],
+select {
   width: 100%;
   padding: 0.7rem 0.8rem;
   border-radius: 0.5rem;
@@ -162,7 +163,10 @@ input[type="text"] {
   color: var(--text);
   font: inherit;
 }
-input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="text"]:focus,
+select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.remote-type-row select { max-width: 20rem; }
 
 .hint { color: var(--muted); font-size: 0.8rem; margin: 0.5rem 0 0.75rem; }
 code {

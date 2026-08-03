@@ -12,6 +12,9 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
   const commandLog = [];
   let nextId = 1;
   let nextFrameSession = 1;
+  // When set, Runtime.evaluate returns this object (for scripting tests);
+  // otherwise it answers document.readyState as 'complete'.
+  let evaluateResult = null;
 
   const server = http.createServer((req, res) => {
     if (req.url === '/json/list') {
@@ -39,7 +42,9 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
         if (target) target.url = msg.params.url;
         navigateLog.push(msg.params.url);
       } else if (msg.method === 'Runtime.evaluate') {
-        result = { result: { type: 'string', value: 'complete' } };
+        result = evaluateResult !== null && evaluateResult !== undefined
+          ? { result: { type: 'object', value: evaluateResult } }
+          : { result: { type: 'string', value: 'complete' } };
       }
       ws.send(JSON.stringify({ id: msg.id, result }));
     });
@@ -104,6 +109,7 @@ function startMockCdp({ url, port = 0, empty = false } = {}) {
         dropConnections() {
           for (const c of wss.clients) c.terminate();
         },
+        setEvaluateResult(v) { evaluateResult = v; },
       };
       if (!empty) state.addTarget(url);
       resolve(state);

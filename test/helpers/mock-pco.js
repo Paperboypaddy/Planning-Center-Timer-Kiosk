@@ -15,6 +15,13 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
     { id: '10', name: 'Sunday 9am', sequence: 0 },
     { id: '20', name: 'Wednesday Night', sequence: 1 },
     { id: '30', name: 'Archived Type', sequence: 2, archived_at: '2020-01-01T00:00:00Z' },
+    { id: '40', name: 'Unfiled Service', sequence: 3 },
+  ];
+
+  // Service Folders -> the service types inside them (via relationships).
+  const folders = [
+    { id: 'f1', name: 'Weekend', serviceTypeIds: ['10'] },
+    { id: 'f2', name: 'Midweek', serviceTypeIds: ['20'] },
   ];
 
   const plansByType = {
@@ -26,6 +33,9 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
       { id: '90211110', sort_date: '2026-08-12T19:00:00-05:00', short_dates: 'Aug 12, 7:00 PM', title: '' },
     ],
     30: [],
+    40: [
+      { id: '90444444', sort_date: '2026-08-22T10:00:00-05:00', short_dates: 'Aug 22, 10:00 AM', title: '' },
+    ],
   };
 
   const requestedPaths = [];
@@ -57,6 +67,20 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
       res.setHeader('Content-Type', 'application/vnd.api+json');
       res.end(JSON.stringify(body));
     };
+
+    if (url.pathname === '/services/v2/folders') {
+      const data = folders.map(({ id, name, serviceTypeIds }) => ({
+        type: 'Folder',
+        id,
+        attributes: { name },
+        relationships: {
+          service_types: {
+            data: serviceTypeIds.map((sid) => ({ type: 'ServiceType', id: sid })),
+          },
+        },
+      }));
+      return api({ data, meta: { total_count: data.length } });
+    }
 
     if (url.pathname === '/services/v2/service_types') {
       const data = serviceTypes

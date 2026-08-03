@@ -6,7 +6,8 @@ const express = require('express');
 
 const { saveConfig } = require('./config');
 const { buildUrl } = require('./url');
-const { listPlans, PcoError } = require('./pco');
+const { listPlans, listPlanGroups, PcoError } = require('./pco');
+const { DISPLAY_TYPES } = require('./kiosk');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
@@ -54,6 +55,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       kiosk: { connected: kiosk.connected, idleUrl: kiosk.idleUrl },
       pco: { configured: !!pcoApiKey(), viaEnv: !!process.env.KIOSK_PCO_API_KEY },
       remote: { active: remoteActive },
+      displayTypes: DISPLAY_TYPES,
     };
   }
 
@@ -154,7 +156,20 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
       const result = await kiosk.navigate(url);
       config.activeServiceId = service.id;
       if (!persist()) return res.status(500).json({ error: 'failed to save config' });
-      res.json({ ok: true, url, activeServiceId: service.id, skipped: result.skipped });
+
+      // If the service has a display type, set it on the live page. This is
+      // best-effort and never blocks the selection from succeeding.
+      let displayType = null;
+      if (service.displayType) {
+        try {
+          await kiosk.setDisplayType(service.displayType);
+          displayType = { value: service.displayType, applied: true };
+        } catch (err) {
+          logger.warn(`[kiosk] display type "${service.displayType}" not applied: ${err.message}`);
+          displayType = { value: service.displayType, applied: false, error: err.message };
+        }
+      }
+      res.json({ ok: true, url, activeServiceId: service.id, skipped: result.skipped, displayType });
     } catch (err) {
       config.activeServiceId = service.id;
       persist();
@@ -164,6 +179,20 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
         url,
         activeServiceId: service.id,
       });
+    }
+  });
+
+  // Set the kiosk's current live page display type directly (used by the
+  // panel's remote-control section to experiment without editing a service).
+  app.post('/api/kiosk/display-type', async (req, res) => {
+    const value = (req.body || {}).value;
+    if (!value) return res.status(400).json({ error: 'value is required' });
+    try {
+      await kiosk.setDisplayType(value);
+      res.json({ ok: true, value });
+    } catch (err) {
+      logger.error(`[kiosk] set display type failed: ${err.message}`);
+      res.status(502).json({ error: err.message });
     }
   });
 
@@ -198,8 +227,13 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
     if (!apiKey) return res.status(400).json({ error: 'no Planning Center API key configured' });
     try {
       const existing = new Set(config.services.map((s) => s.serviceId));
-      const plans = await listPlans({ apiKey, signal: req.signal });
-      res.json({ plans: plans.map((p) => ({ ...p, existing: existing.has(p.id) })) });
+      const groups = await listPlanGroups({ apiKey, signal: req.signal });
+      for (const group of groups) {
+        for (const st of group.serviceTypes) {
+          for (const plan of st.plans) plan.existing = existing.has(plan.id);
+        }
+      }
+      res.json({ groups });
     } catch (err) {
       handlePcoError(err, res);
     }

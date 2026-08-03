@@ -74,31 +74,84 @@ async function pagingGet(path, { apiKey, signal, pageSize = 100, maxPages = 3 } 
   return items;
 }
 
-// Upcoming plans across all service types, normalized for the control panel.
-async function listPlans({ apiKey, signal } = {}) {
-  const types = await pagingGet('/service_types', { apiKey, signal });
-  const plans = [];
-  for (const type of types) {
-    const typeName = (type.attributes && type.attributes.name) || 'Service';
+// Build the catalog the importer UI browses: Service Folders -> Service Types
+// -> upcoming plans, plus an "Unfiled" bucket for service types that are not
+// in any folder. Plans are ordered by sort date; archived/deleted service
+// types are excluded. This maps the PCO hierarchy so the operator can segment
+// picks by folder and service type instead of one flat list.
+async function listPlanGroups({ apiKey, signal } = {}) {
+  const [folders, types] = await Promise.all([
+    pagingGet('/folders?order=name', { apiKey, signal }),
+    pagingGet('/service_types', { apiKey, signal }),
+  ]);
+
+  const typeById = new Map(types.map((t) => [t.id, t]));
+  const isActive = (t) => {
+    const a = t.attributes || {};
+    return !a.archived_at && !a.deleted_at;
+  };
+  const typeName = (t) => (t.attributes && t.attributes.name) || 'Service';
+
+  // Fetch upcoming plans for every active service type, in parallel.
+  const activeTypes = types.filter(isActive);
+  const plansByType = new Map();
+  await Promise.all(activeTypes.map(async (type) => {
     const typePlans = await pagingGet(`/service_types/${type.id}/plans?filter=future&order=sort_date`, {
       apiKey,
       signal,
     });
-    for (const plan of typePlans) {
+    plansByType.set(type.id, typePlans.map((plan) => {
       const attrs = plan.attributes || {};
-      plans.push({
+      return {
         id: plan.id,
         serviceTypeId: type.id,
-        serviceTypeName: typeName,
+        serviceTypeName: typeName(type),
         sortDate: attrs.sort_date || null,
         shortDates: attrs.short_dates || null,
         dates: attrs.dates || null,
         title: attrs.title || '',
-      });
+      };
+    }));
+  }));
+
+  const assigned = new Set();
+  const groups = [];
+
+  for (const folder of folders) {
+    const folderId = folder.id;
+    const folderName = (folder.attributes && folder.attributes.name) || 'Folder';
+    const typeIds = ((folder.relationships && folder.relationships.service_types && folder.relationships.service_types.data) || [])
+      .map((r) => r.id);
+    const serviceTypes = [];
+    for (const typeId of typeIds) {
+      const type = typeById.get(typeId);
+      if (!type || !isActive(type)) continue;
+      assigned.add(typeId);
+      const plans = (plansByType.get(typeId) || []).map((p) => ({ ...p, folderName }));
+      if (plans.length) serviceTypes.push({ id: typeId, name: typeName(type), plans });
     }
+    if (serviceTypes.length) groups.push({ id: `folder_${folderId}`, name: folderName, isFolder: true, serviceTypes });
   }
-  plans.sort((a, b) => String(a.sortDate).localeCompare(String(b.sortDate)));
-  return plans;
+
+  // Service types that belong to no folder, or to a folder we dropped.
+  const unfiled = [];
+  for (const type of activeTypes) {
+    if (assigned.has(type.id)) continue;
+    const plans = plansByType.get(type.id) || [];
+    if (plans.length) unfiled.push({ id: type.id, name: typeName(type), plans });
+  }
+  if (unfiled.length) groups.push({ id: 'unfiled', name: 'Unfiled', isFolder: false, serviceTypes: unfiled });
+
+  return groups;
 }
 
-module.exports = { PcoError, listPlans };
+// Flat list of upcoming plans ordered by sort date (used by the import
+// action). Includes folderName on each plan so names/context survive.
+async function listPlans(opts = {}) {
+  const groups = await listPlanGroups(opts);
+  return groups
+    .flatMap((g) => g.serviceTypes.flatMap((st) => st.plans))
+    .sort((a, b) => String(a.sortDate).localeCompare(String(b.sortDate)));
+}
+
+module.exports = { PcoError, listPlans, listPlanGroups };

@@ -89,6 +89,7 @@
     templateInput.value = state.urlTemplate;
     renderPco();
     syncRemoteState();
+    populateDisplayTypes();
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -226,15 +227,16 @@
     pcoStatusLine.className = 'msg';
     try {
       const r = await api('/api/pco/plans');
-      pcoPlans = r.plans || [];
+      const groups = r.groups || [];
+      pcoPlans = groups.flatMap((g) => g.serviceTypes.flatMap((st) => st.plans));
       pcoList.innerHTML = '';
       if (!pcoPlans.length) {
         pcoStatusLine.textContent = 'No upcoming plans found.';
         pcoStatusLine.className = 'msg';
         return;
       }
-      for (const plan of pcoPlans) pcoList.appendChild(pcoItem(plan));
-      pcoStatusLine.textContent = pcoPlans.length + ' upcoming plan(s). Select the ones to add.';
+      for (const group of groups) pcoList.appendChild(pcoFolder(group));
+      pcoStatusLine.textContent = pcoPlans.length + ' upcoming plan(s) across ' + groups.length + ' group(s). Select the ones to add.';
       pcoStatusLine.className = 'msg ok';
     } catch (err) {
       pcoStatusLine.textContent = 'Load failed: ' + err.message;
@@ -242,12 +244,13 @@
     }
   });
 
-  function pcoItem(plan) {
+  function pcoPlanRow(plan) {
     const label = document.createElement('label');
     label.className = 'pco-item' + (plan.existing ? ' existing' : '');
 
     const cb = document.createElement('input');
     cb.type = 'checkbox';
+    cb.className = 'plan-cb';
     cb.value = plan.id;
     cb.disabled = !!plan.existing;
 
@@ -270,6 +273,44 @@
       label.appendChild(tag);
     }
     return label;
+  }
+
+  // One folder: a collapsible <details> with a select-all per service type.
+  function pcoFolder(group) {
+    const details = document.createElement('details');
+    details.className = 'pco-folder';
+    details.open = true;
+
+    const summary = document.createElement('summary');
+    const total = group.serviceTypes.reduce((n, st) => n + st.plans.length, 0);
+    summary.textContent = group.name + ' (' + total + ')';
+
+    const typesBox = document.createElement('div');
+    for (const st of group.serviceTypes) {
+      const header = document.createElement('div');
+      header.className = 'pco-type';
+      const selAll = document.createElement('input');
+      selAll.type = 'checkbox';
+      selAll.className = 'select-all-cb';
+      selAll.addEventListener('change', () => {
+        const state = selAll.checked;
+        header.parentElement
+          .querySelectorAll('input.plan-cb[data-type="' + st.id + '"]')
+          .forEach((cb) => { if (!cb.disabled) cb.checked = state; });
+      });
+      const label = document.createElement('span');
+      label.textContent = st.name + ' (' + st.plans.length + ')';
+      header.append(selAll, label);
+      typesBox.appendChild(header);
+      for (const plan of st.plans) {
+        const row = pcoPlanRow(plan);
+        row.querySelector('input.plan-cb').dataset.type = st.id;
+        typesBox.appendChild(row);
+      }
+    }
+
+    details.append(summary, typesBox);
+    return details;
   }
 
   document.getElementById('pco-add-selected').addEventListener('click', async () => {
@@ -303,6 +344,38 @@
     remoteStatus.textContent = text;
     remoteStatus.className = 'msg' + (cls ? ' ' + cls : '');
   }
+
+  // Fill both display-type dropdowns from the server's known layout list.
+  function populateDisplayTypes() {
+    const types = (state && state.displayTypes) || [];
+    for (const sel of [fDisplayType, document.getElementById('remote-display-type')]) {
+      const current = sel.value;
+      sel.innerHTML = '';
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = sel === fDisplayType ? '(PCO default)' : 'Set display type\u2026';
+      sel.appendChild(blank);
+      for (const t of types) {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = t;
+        sel.appendChild(o);
+      }
+      if (types.includes(current)) sel.value = current;
+    }
+  }
+
+  document.getElementById('remote-apply-display').addEventListener('click', async () => {
+    const value = document.getElementById('remote-display-type').value;
+    if (!value) { setRemoteStatus('Pick a display type first.', 'err'); return; }
+    setRemoteStatus('Applying display type\u2026', '');
+    try {
+      await api('/api/kiosk/display-type', { method: 'POST', body: JSON.stringify({ value }) });
+      setRemoteStatus('Display type set to \u201c' + value + '\u201d.', 'ok');
+    } catch (err) {
+      setRemoteStatus('Could not set: ' + err.message, 'err');
+    }
+  });
 
   function remoteInput(body) {
     api('/api/remote/input', { method: 'POST', body: JSON.stringify(body) }).catch(() => {});

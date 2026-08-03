@@ -123,6 +123,26 @@ tokens: `{serviceId}` (required for most setups) and `{displayType}` (optional;
 replaced with an empty string when unset). Verify the pattern against your own
 account before relying on it — see [docs/SETUP.md](docs/SETUP.md#2-find-and-verify-the-correct-pco-live-url-template).
 
+## Display type (per service)
+
+Each service can also carry a `displayType`. When you select such a service,
+after navigating to its live page the control server sets the Planning Center
+**live-controller layout** to that value via CDP (it briefly emulates a desktop
+viewport — the layout dropdown only renders there — clicks the menu item, then
+restores the native viewport). Planning Center saves the layout per plan, so it
+persists on the TV's presentation. Known values (from the PCO live controller
+toolbar):
+
+```
+Normal Layout · Countdown Full · Countdown Lower · Lower Third · Fullscreen Overview
+```
+
+The panel's service dialog offers these in a dropdown, and the **Kiosk remote
+control** section has a "Set display type" control for experimenting without
+editing a service. Selection applies even if it fails partway — the kiosk
+still navigates and the error is reported in the response
+(`displayType.applied: false`).
+
 ## Optional: import services from the Planning Center API
 
 Instead of typing plan IDs, you can connect the control panel to your Planning
@@ -194,6 +214,7 @@ systemd):
 | `POST` | `/api/remote/stop` | Stop the screencast |
 | `POST` | `/api/remote/input` | Forward `{type:'mouse'|'text'|'key', …}` to the kiosk tab |
 | `GET` | `/api/remote/stream` | SSE stream of kiosk screencast frames |
+| `POST` | `/api/kiosk/display-type` | `{value}` — set the live page's display type on the kiosk tab |
 
 `POST /api/select` returns `200` with `skipped: true` when the kiosk tab is
 already on that URL (no unnecessary reload), and `502` when the kiosk browser

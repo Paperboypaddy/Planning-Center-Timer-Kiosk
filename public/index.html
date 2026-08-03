@@ -65,6 +65,12 @@
       <button id="remote-start" class="btn btn-primary">Start remote control</button>
       <button id="remote-stop" class="btn btn-ghost">Stop</button>
     </div>
+    <div class="remote-actions remote-type-row">
+      <select id="remote-display-type" aria-label="Set display type on the kiosk live page">
+        <option value="">Set display type\u2026</option>
+      </select>
+      <button id="remote-apply-display" class="btn btn-primary">Apply</button>
+    </div>
     <div id="remote-status" class="msg" role="status"></div>
     <div id="remote-view" class="hidden">
       <img id="kiosk-view" alt="kiosk screen">
@@ -83,8 +89,10 @@
     <input id="f-name" type="text" placeholder="e.g. Sunday 9am" autocomplete="off" required>
     <label for="f-serviceid">PCO service/plan ID</label>
     <input id="f-serviceid" type="text" inputmode="numeric" placeholder="e.g. 90197325" autocomplete="off" required>
-    <label for="f-displaytype">Display type <em>(optional)</em></label>
-    <input id="f-displaytype" type="text" placeholder="only used if the template has {displayType}" autocomplete="off">
+    <label for="f-displaytype">Display type <em>(optional — set on the PCO live page)</em></label>
+    <select id="f-displaytype">
+      <option value="">(PCO default)</option>
+    </select>
     <div class="dialog-actions">
       <button type="button" id="dialog-cancel" class="btn btn-ghost">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
