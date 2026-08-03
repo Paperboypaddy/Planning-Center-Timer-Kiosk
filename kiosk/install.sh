@@ -112,6 +112,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -subj "/CN=$PANEL_HOST" \
   -addext "subjectAltName=DNS:$PANEL_HOST,DNS:localhost,IP:127.0.0.1,IP:$PANEL_IP" \
   >/dev/null 2>&1
+# Caddy runs as its own unprivileged user — make the certs readable by it.
+chown caddy:caddy /etc/caddy/kiosk-cert.pem /etc/caddy/kiosk-key.pem
+chmod 644 /etc/caddy/kiosk-cert.pem
+chmod 600 /etc/caddy/kiosk-key.pem
 
 cat > /etc/caddy/Caddyfile <<EOF
 :3000 {
