@@ -80,6 +80,13 @@ test('select applies the service display type and reports it', async () => {
     assert.equal(sel.body.displayType.value, 'Lower Third');
     assert.equal(sel.body.displayType.applied, true);
 
+    // Emulation must happen BEFORE navigating so the TV never shows the
+    // emulated (zoomed) view — it lands inside the loading screen.
+    const idxEmulate = mock.commandLog.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
+    const idxNavigate = mock.commandLog.findIndex((c) => c.method === 'Page.navigate');
+    assert.ok(idxEmulate >= 0 && idxNavigate >= 0 && idxEmulate < idxNavigate,
+      'desktop viewport emulated before navigating');
+
     // A service without a display type leaves the PCO setting untouched.
     const res2 = await ctx.send('/api/services', 'POST', { name: 'Wed', serviceId: '456' });
     const sel2 = await ctx.send('/api/select', 'POST', { id: res2.body.service.id });

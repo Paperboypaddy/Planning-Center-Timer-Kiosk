@@ -249,6 +249,9 @@ as Chromium reconnects.
   particular we do **not** pass `--disable-gpu` or force compositing, so
   Chromium picks a graphics backend suitable for the hardware (e.g. the Orange
   Pi Zero 3's GPU via `dri3` on Armbian).
+- **Dark TV**: `--blink-settings=backgroundcolor=FF000000` makes the browser's
+  default page background opaque black, so page loads show a black screen
+  instead of a white flash.
 - **mDNS**: install `avahi-daemon` so `http://<hostname>.local:3000` works
   from a phone without remembering an IP.
 

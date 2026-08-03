@@ -92,6 +92,9 @@ trap cleanup EXIT
 # Conservative flags. Notably we do NOT pass --disable-gpu or similar:
 # let the system pick the graphics backend. On a low-power Orange Pi Zero 3
 # this avoids assumptions about GPU/compositing capabilities.
+#   --blink-settings=backgroundcolor=FF000000  makes the default page
+#   background opaque black, so navigating shows a black screen instead of a
+#   white flash (this is a TV kept in dark mode).
 FLAGS=(
   --remote-debugging-port="${DEBUG_PORT}"
   --remote-debugging-address=127.0.0.1
@@ -101,6 +104,7 @@ FLAGS=(
   --noerrdialogs
   --disable-session-crashed-bubble
   --password-store=basic
+  --blink-settings=backgroundcolor=FF000000
   --disable-features=TranslateUI,MediaRouter
 )
 

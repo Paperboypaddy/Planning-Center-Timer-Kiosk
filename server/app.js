@@ -205,27 +205,41 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
     const service = findService((req.body || {}).id);
     if (!service) return res.status(404).json({ error: 'service not found' });
     const url = buildUrl(config.urlTemplate, service);
+    const displayTypeValue = service.displayType || config.defaultDisplayType;
+    const applyDisplayType = !!displayTypeValue;
+    const applyTheme = !!config.defaultTheme;
+    const needsDesktop = applyDisplayType || applyTheme;
+
     try {
+      // The layout/theme controls only render at a desktop viewport. Emulate
+      // one BEFORE navigating so the TV never shows the emulated (zoomed)
+      // view — it lands inside the loading screen instead.
+      if (needsDesktop) await kiosk.setDeviceMetrics(1920, 1080);
       const result = await kiosk.navigate(url);
+      if (needsDesktop && result.skipped) {
+        // The tab was already on this URL (loaded at its native viewport, so
+        // no controller controls). Reload it so it re-renders at the desktop
+        // viewport we just emulated.
+        await kiosk.reload();
+      }
       config.activeServiceId = service.id;
       if (!persist()) return res.status(500).json({ error: 'failed to save config' });
 
       // Apply the display type (per-service override, else the saved default)
       // and the default theme. Best-effort — never blocks the selection.
       let displayType = null;
-      const displayTypeValue = service.displayType || config.defaultDisplayType;
-      if (displayTypeValue) {
+      if (applyDisplayType) {
         try {
-          await kiosk.setDisplayType(displayTypeValue);
+          await kiosk.setDisplayType(displayTypeValue, { emulate: false, restoreViewport: false });
           displayType = { value: displayTypeValue, applied: true, source: service.displayType ? 'service' : 'default' };
         } catch (err) {
           logger.warn(`[kiosk] display type "${displayTypeValue}" not applied: ${err.message}`);
           displayType = { value: displayTypeValue, applied: false, error: err.message };
         }
       }
-      if (config.defaultTheme) {
+      if (applyTheme) {
         try {
-          await kiosk.setTheme(config.defaultTheme);
+          await kiosk.setTheme(config.defaultTheme, { emulate: false, restoreViewport: false });
         } catch (err) {
           logger.warn(`[kiosk] theme "${config.defaultTheme}" not applied: ${err.message}`);
         }
@@ -240,6 +254,10 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console }) {
         url,
         activeServiceId: service.id,
       });
+    } finally {
+      if (needsDesktop) {
+        try { await kiosk.clearDeviceMetrics(); } catch { /* kiosk may be down */ }
+      }
     }
   });
 

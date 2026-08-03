@@ -240,23 +240,41 @@ class KioskDriver extends EventEmitter {
     return resp.result && resp.result.value;
   }
 
+  async setDeviceMetrics(width, height) {
+    const client = await this.connect();
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+  }
+
+  async clearDeviceMetrics() {
+    const client = await this.connect();
+    try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* tab may have navigated */ }
+  }
+
+  // Reload the kiosk tab so it re-renders at the current (possibly emulated)
+  // viewport. Used when a navigation was skipped but the page needs to pick up
+  // a desktop viewport to show the live-controller controls.
+  async reload() {
+    const client = await this.connect();
+    await client.send('Page.reload', { ignoreCache: true });
+  }
+
   // Set the live page's display type (the layout dropdown in the PCO live
-  // controller toolbar). The dropdown only renders in a desktop-size viewport,
-  // so we briefly emulate one, select the layout, then restore the native
-  // viewport. The selection is saved per plan by Planning Center, so it
-  // persists for the audience/presentation view on the TV.
-  async setDisplayType(value, { restoreViewport = true } = {}) {
+  // controller toolbar). The dropdown only renders in a desktop-size
+  // viewport, so we briefly emulate one, select the layout, then restore the
+  // native viewport. Pass `emulate: false` (with viewport handled by the
+  // caller) when driving the layout as part of a select flow that emulates
+  // *before* navigating, so the TV never shows the emulated view.
+  async setDisplayType(value, { restoreViewport = true, emulate = true } = {}) {
     if (!DISPLAY_TYPES.includes(value)) {
       throw new Error(`unknown display type "${value}"; expected one of: ${DISPLAY_TYPES.join(', ')}`);
     }
     const client = await this.connect();
-    await client.send('Emulation.setDeviceMetricsOverride', {
-      width: 1920,
-      height: 1080,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    const emulated = true;
+    if (emulate) await this.setDeviceMetrics(1920, 1080);
     try {
       const target = JSON.stringify(value);
       const deadline = Date.now() + 15000;
@@ -289,27 +307,18 @@ class KioskDriver extends EventEmitter {
         await sleep(500);
       }
     } finally {
-      if (restoreViewport && emulated) {
-        try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* tab may have navigated */ }
-      }
+      if (emulate && restoreViewport) await this.clearDeviceMetrics();
     }
   }
 
   // Set the live page's light/dark theme (the radio switch in the live
-  // controller toolbar). Like setDisplayType, it briefly emulates a desktop
-  // viewport, clicks the matching radio, then restores the native viewport.
-  async setTheme(theme, { restoreViewport = true } = {}) {
+  // controller toolbar). Same viewport dance as setDisplayType.
+  async setTheme(theme, { restoreViewport = true, emulate = true } = {}) {
     if (!THEMES.includes(theme)) {
       throw new Error(`unknown theme "${theme}"; expected light or dark`);
     }
     const client = await this.connect();
-    await client.send('Emulation.setDeviceMetricsOverride', {
-      width: 1920,
-      height: 1080,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    const emulated = true;
+    if (emulate) await this.setDeviceMetrics(1920, 1080);
     try {
       const target = JSON.stringify(theme);
       const deadline = Date.now() + 15000;
@@ -332,9 +341,7 @@ class KioskDriver extends EventEmitter {
         await sleep(500);
       }
     } finally {
-      if (restoreViewport && emulated) {
-        try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* tab may have navigated */ }
-      }
+      if (emulate && restoreViewport) await this.clearDeviceMetrics();
     }
   }
 
