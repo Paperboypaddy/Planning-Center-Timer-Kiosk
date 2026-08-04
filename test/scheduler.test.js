@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createScheduler } = require('../server/scheduler');
+const { createScheduler, rebootCommand } = require('../server/scheduler');
 const { waitFor, quietLogger } = require('./helpers/util');
 
 const nowISO = () => new Date(Date.now()).toISOString();
@@ -175,6 +175,12 @@ test('no reboot when no cron is configured or the cron is invalid', async () => 
   } finally {
     s2.stop();
   }
+});
+
+test('rebootCommand is platform-aware', () => {
+  assert.deepEqual(rebootCommand('win32'), { cmd: 'shutdown', args: ['/r', '/t', '0'] });
+  assert.deepEqual(rebootCommand('darwin'), { cmd: 'shutdown', args: ['-r', 'now'] });
+  assert.deepEqual(rebootCommand('linux'), { cmd: 'sudo', args: ['-n', 'systemctl', 'reboot'] });
 });
 
 void nowISO;

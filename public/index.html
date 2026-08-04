@@ -91,26 +91,29 @@
     </div>
   </section>
 
-  <section class="settings">
+  <section class="settings" id="tv-section">
     <div class="section-head">
       <h2>TV &amp; auto-on</h2>
     </div>
-    <div id="tv-status" class="tv-status">Checking CEC\u2026</div>
-    <div class="remote-actions">
-      <button id="tv-on" class="btn btn-primary">TV on</button>
-      <button id="tv-off" class="btn btn-ghost">TV off</button>
-      <button id="tv-refresh" class="btn btn-ghost">Refresh</button>
+    <div id="tv-controls">
+      <div id="tv-status" class="tv-status">Checking CEC\u2026</div>
+      <div class="remote-actions">
+        <button id="tv-on" class="btn btn-primary">TV on</button>
+        <button id="tv-off" class="btn btn-ghost">TV off</button>
+        <button id="tv-refresh" class="btn btn-ghost">Refresh</button>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="tv-auto-on"> Auto-on before services
+      </label>
+      <p class="hint">Turns the TV on before the next service or rehearsal time of any saved service (needs the Planning Center API key).</p>
+      <label for="tv-lead">Turn on this many minutes before</label>
+      <input id="tv-lead" type="number" min="0" max="600" inputmode="numeric">
+      <div class="settings-actions">
+        <button id="save-tv" class="btn btn-primary">Save TV settings</button>
+      </div>
+      <div id="tv-msg" class="msg" role="status"></div>
     </div>
-    <label class="check">
-      <input type="checkbox" id="tv-auto-on"> Auto-on before services
-    </label>
-    <p class="hint">Turns the TV on before the next service or rehearsal time of any saved service (needs the Planning Center API key).</p>
-    <label for="tv-lead">Turn on this many minutes before</label>
-    <input id="tv-lead" type="number" min="0" max="600" inputmode="numeric">
-    <div class="settings-actions">
-      <button id="save-tv" class="btn btn-primary">Save TV settings</button>
-    </div>
-    <div id="tv-msg" class="msg" role="status"></div>
+    <p id="tv-unsupported" class="hint hidden">TV power control (HDMI-CEC) isn\u2019t available on this platform, so auto-on is disabled too. This section is for Linux boxes with a CEC-capable TV.</p>
   </section>
 
   <section class="settings">

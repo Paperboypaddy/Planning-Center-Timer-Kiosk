@@ -3,6 +3,15 @@
 const { execFile } = require('child_process');
 const { CronExpressionParser } = require('cron-parser');
 
+// The reboot command differs per platform. The control server runs as an
+// unprivileged user; on Linux a narrow sudoers entry (see kiosk/install.sh)
+// grants exactly `systemctl reboot`.
+function rebootCommand(platform = process.platform) {
+  if (platform === 'win32') return { cmd: 'shutdown', args: ['/r', '/t', '0'] };
+  if (platform === 'darwin') return { cmd: 'shutdown', args: ['-r', 'now'] };
+  return { cmd: 'sudo', args: ['-n', 'systemctl', 'reboot'] };
+}
+
 // Background tasks for the kiosk:
 //   - auto-on: turn the TV on `leadMinutes` before the next service/rehearsal
 //     time of any configured service (needs a PCO API key to know the times)
@@ -43,9 +52,8 @@ function createScheduler({
       if (rebootFn) {
         rebootFn();
       } else {
-        // The service runs as an unprivileged user; a narrow sudoers entry
-        // (see kiosk/install.sh) grants exactly this one command.
-        execFile('sudo', ['-n', 'systemctl', 'reboot'], (err) => {
+        const { cmd, args } = rebootCommand();
+        execFile(cmd, args, (err) => {
           if (err) logger.warn(`[scheduler] reboot failed: ${err.message}`);
         });
       }
@@ -144,4 +152,4 @@ function createScheduler({
   };
 }
 
-module.exports = { createScheduler };
+module.exports = { createScheduler, rebootCommand };

@@ -14,7 +14,7 @@ Environment=XAUTHORITY=/home/@BROWSER_USER@/.Xauthority
 Environment=KIOSK_PROFILE_DIR=@CONFIG_DIR@/chromium-profile
 Environment=KIOSK_URL=http://127.0.0.1:3001/nowplaying
 Environment=KIOSK_DEBUG_PORT=9222
-ExecStart=@DEST@/kiosk/launch-kiosk.sh
+ExecStart=@DEST@/kiosk/launch-kiosk.sh --kiosk
 Restart=always
 RestartSec=5
 

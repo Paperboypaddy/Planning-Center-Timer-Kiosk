@@ -63,6 +63,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       defaultTheme: config.defaultTheme,
       tv: { available: cec.isAvailable(), autoOn: config.tv.autoOn, leadMinutes: config.tv.leadMinutes },
       reboot: { cron: config.reboot.cron },
+      platform: { os: process.platform },
     };
   }
 

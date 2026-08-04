@@ -250,6 +250,10 @@
 
   function syncTvSettings() {
     if (!state) return;
+    // On platforms without CEC (Windows/macOS), hide the whole TV section.
+    const unsupported = state.platform && state.platform.os !== 'linux' && !(state.tv && state.tv.available);
+    document.getElementById('tv-controls').classList.toggle('hidden', unsupported);
+    document.getElementById('tv-unsupported').classList.toggle('hidden', !unsupported);
     tvAutoOnEl.checked = !!(state.tv && state.tv.autoOn);
     tvLeadEl.value = (state.tv && state.tv.leadMinutes) || 0;
   }

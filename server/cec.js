@@ -1,24 +1,39 @@
 'use strict';
 
-// HDMI-CEC power control for the TV, via cec-client (cec-utils package).
-// All functions are safe to call when cec-client is missing or the TV/CEC
-// bus is unavailable — they resolve with { ok: false } rather than throwing.
+// HDMI-CEC power control for the TV, via cec-client (cec-utils on Linux; a
+// Pulse-Eight USB adapter provides cec-client on Windows/macOS). All functions
+// are safe to call when cec-client is missing or the TV/CEC bus is
+// unavailable — they resolve with { ok: false } rather than throwing.
 
-const { spawn, spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
 
 let availabilityChecked = false;
 let cecAvailable = false;
 
-function commandExists(cmd) {
-  // spawnSync returns { status } — status 0 means the command was found.
-  // A non-zero exit (command missing) is NOT an exception, so check the code.
-  const r = spawnSync('which', [cmd], { stdio: 'ignore', timeout: 3000 });
-  return r.status === 0;
+const PLATFORM = process.platform;
+
+// Cross-platform PATH lookup (no reliance on `which`/`where`).
+function scanPathForCommand(cmd, pathEnv = process.env.PATH || '', platform = PLATFORM) {
+  const sep = platform === 'win32' ? ';' : ':';
+  const exts = platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  const dirs = pathEnv.split(sep).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      try {
+        if (fs.statSync(path.join(dir, cmd + ext)).isFile()) return path.join(dir, cmd + ext);
+      } catch {
+        // not here; keep looking
+      }
+    }
+  }
+  return null;
 }
 
 function isAvailable() {
   if (!availabilityChecked) {
-    cecAvailable = commandExists('cec-client');
+    cecAvailable = !!scanPathForCommand('cec-client');
     availabilityChecked = true;
   }
   return cecAvailable;
@@ -63,4 +78,4 @@ async function powerStatus() {
   return { ok: true, power, raw: r.out.trim().slice(0, 200) };
 }
 
-module.exports = { isAvailable, powerOn, powerOff, powerStatus };
+module.exports = { isAvailable, powerOn, powerOff, powerStatus, scanPathForCommand };

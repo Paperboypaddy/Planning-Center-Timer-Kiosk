@@ -191,15 +191,12 @@ fi
 PANEL_HASH="$(caddy hash-password --plaintext "$PANEL_PASSWORD")"
 
 # Self-signed certificate (valid 10 years) covering the mDNS name, localhost,
-# and the current LAN IP. A bare ":443" site with `tls internal` does not get
-# automatic HTTPS, so we provide explicit cert files.
+# and the current LAN IP. Generated cross-platform via Node (selfsigned); a
+# bare ":443" site with `tls internal` does not get automatic HTTPS, so we
+# provide explicit cert files.
 PANEL_HOST="$(hostname).local"
-PANEL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-  -keyout /etc/caddy/kiosk-key.pem -out /etc/caddy/kiosk-cert.pem \
-  -subj "/CN=$PANEL_HOST" \
-  -addext "subjectAltName=DNS:$PANEL_HOST,DNS:localhost,IP:127.0.0.1,IP:$PANEL_IP" \
-  >/dev/null 2>&1
+"$NODE_BIN" "$DEST_DIR/kiosk/gen-cert.js" /etc/caddy "$PANEL_HOST" \
+  || { echo "error: failed to generate the panel certificate" >&2; exit 1; }
 # Caddy runs as its own unprivileged user — make the certs readable by it.
 chown caddy:caddy /etc/caddy/kiosk-cert.pem /etc/caddy/kiosk-key.pem
 chmod 644 /etc/caddy/kiosk-cert.pem
