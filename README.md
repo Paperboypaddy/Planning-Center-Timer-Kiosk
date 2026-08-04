@@ -1,8 +1,11 @@
 # Planning Center Countdown Kiosk Controller
 
 Drives the live Planning Center Services countdown on a wall-mounted TV from a
-small single-board computer (target: Orange Pi Zero 3 / Armbian; developed and
-tested on any Debian/Ubuntu system, a Raspberry Pi, or a plain VM).
+small computer. Runs on **Debian/Ubuntu Linux (arm64 + amd64 — Raspberry Pi,
+Orange Pi Zero 3, x86 Mini PCs), Windows, and macOS** — the core is Node +
+Chromium via the Chrome DevTools Protocol, so it's platform-agnostic. See
+[docs/PLATFORMS.md](docs/PLATFORMS.md) for per-platform setup and which
+features (like TV power control) are available where.
 
 The countdown itself is operated from inside Planning Center by the service
 operator. This project just makes the TV reliably show the **right** countdown
@@ -91,8 +94,11 @@ npm test
 
 ## Install on the device
 
-See **[docs/SETUP.md](docs/SETUP.md)** for the full walkthrough. The short
-version — on Raspberry Pi OS, Debian, or Ubuntu (arm64 or amd64):
+See **[docs/SETUP.md](docs/SETUP.md)** (Linux) and
+**[docs/PLATFORMS.md](docs/PLATFORMS.md)** (all platforms) for the full
+walkthrough. The short versions:
+
+**Linux** (Raspberry Pi OS, Debian, or Ubuntu, arm64 or amd64):
 
 ```bash
 git clone https://github.com/Paperboypaddy/Planning-Center-Timer-Kiosk.git
@@ -100,6 +106,11 @@ cd Planning-Center-Timer-Kiosk
 sudo ./kiosk/install.sh   # system packages, X kiosk session, control server,
                           # Caddy HTTPS+Auth, and optionally Tailscale
 ```
+
+**Windows** — build `KioskSetup.exe` with Inno Setup (see PLATFORMS.md), or
+just `npm install && npm start && npm run kiosk` on a dev laptop.
+
+**macOS** — `./kiosk/install-macos.sh` (Homebrew Node + Caddy + launchd).
 
 Then do the one-time PCO login from the panel's **Kiosk remote control** and
 add your services.
