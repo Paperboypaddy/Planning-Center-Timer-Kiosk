@@ -1,0 +1,18 @@
+appId: com.planningcenter.kiosk
+productName: Planning Center Kiosk
+directories:
+  buildResources: build
+  output: dist
+files:
+  - main.js
+  - package.json
+  - server/**
+  - public/**
+  - kiosk/gen-cert.js
+  - build/icon.ico
+win:
+  target:
+    - portable
+  icon: build/icon.ico
+portable:
+  artifactName: Planning-Center-Kiosk-${version}.exe

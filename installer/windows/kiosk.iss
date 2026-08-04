@@ -1,4 +1,5 @@
-; Inno Setup installer for the Planning Center kiosk (Windows).
+; Inno Setup installer for the Planning Center kiosk (Windows) — wraps the
+; single-file Electron app built by build-windows.ps1.
 ; Build with:  .\installer\windows\build-windows.ps1   (or iscc kiosk.iss)
 
 #define MyAppName "Planning Center Kiosk"
@@ -20,29 +21,29 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
+; The app is portable (single exe); keep it together with its shortcuts.
+UninstallDisplayIcon={app}\Planning Center Kiosk.exe
 
 [Tasks]
-Name: "startup"; Description: "Start the kiosk automatically at logon"; GroupDescription: "Startup:"; Flags: checked
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "startup"; Description: "Start the kiosk automatically at logon"
+Name: "desktopicon"; Description: "Create a &desktop shortcut"
 
 [Files]
-Source: "bundle\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "..\..\app\dist\Planning-Center-Kiosk-*.exe"; DestDir: "{app}"; DestName: "Planning Center Kiosk.exe"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}\Kiosk"; Filename: "{app}\node.exe"; Parameters: "kiosk\launch-kiosk.js"; WorkingDir: "{app}"
-Name: "{autoprograms}\{#MyAppName}\Kiosk Control panel"; Filename: "{app}\node.exe"; Parameters: "kiosk\open-panel.js"; WorkingDir: "{app}"
+Name: "{autoprograms}\{#MyAppName}\Planning Center Kiosk"; Filename: "{app}\Planning Center Kiosk.exe"; WorkingDir: "{app}"
 Name: "{autoprograms}\{#MyAppName}\Uninstall"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Kiosk"; Filename: "{app}\node.exe"; Parameters: "kiosk\launch-kiosk.js"; WorkingDir: "{app}"; Tasks: desktopicon
-Name: "{userstartup}\Kiosk"; Filename: "{app}\node.exe"; Parameters: "kiosk\run.js"; WorkingDir: "{app}"; Tasks: startup
+Name: "{autodesktop}\Planning Center Kiosk"; Filename: "{app}\Planning Center Kiosk.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userstartup}\Planning Center Kiosk"; Filename: "{app}\Planning Center Kiosk.exe"; WorkingDir: "{app}"; Tasks: startup
 
 [Run]
-; First-run setup: panel password, self-signed cert, Caddy config, panel-login.txt.
-Filename: "{app}\node.exe"; Parameters: "kiosk\setup.js ""{app}"""; WorkingDir: "{app}"; Flags: runhidden; StatusMsg: "Configuring the control panel..."
-; Allow inbound HTTPS to Caddy on :443 (installer runs elevated).
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=KioskPanel443 dir=in action=allow protocol=TCP localport=443"; Flags: runhidden; StatusMsg: "Adding the firewall rule..."
-; Start everything now (server + Caddy + browser).
-Filename: "{app}\node.exe"; Parameters: "kiosk\run.js"; WorkingDir: "{app}"; Flags: runhidden; StatusMsg: "Starting the kiosk..."; Description: "Start the kiosk now"; Tasks: startup
+; Open the firewall for the panel (HTTPS on :443). The app itself should be
+; launched by the operator (Start menu / desktop shortcut), NOT from here —
+; running it from this elevated context would create the browser profile with
+; administrator ownership (the cause of the earlier "new window every 3s"
+; loop). The Startup shortcut launches it de-elevated at logon.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=KioskPanel443 dir=in action=allow protocol=TCP localport=443"; Flags: runhidden; StatusMsg: "Opening the firewall for the control panel..."
 
 [UninstallRun]
-Filename: "{app}\node.exe"; Parameters: "kiosk\run.js --stop"; WorkingDir: "{app}"; RunOnceId: "KioskStop"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=KioskPanel443"; Flags: runhidden

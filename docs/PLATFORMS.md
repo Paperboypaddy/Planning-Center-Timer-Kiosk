@@ -36,35 +36,44 @@ server, Caddy (HTTPS + Basic Auth on :443), and optionally Tailscale. See
 
 ## Windows (Mini PC / dev laptop)
 
-The browser is Edge (preinstalled) or Chrome; by default it runs as a **normal
-window** (pass `--kiosk` to `kiosk\launch-kiosk.js` for fullscreen). The
-control server stays on `127.0.0.1:3001`; Caddy.exe serves the panel on
-`:443` with the same HTTPS + Basic Auth.
+The Windows build is a **single-file Electron app** (`Planning Center Kiosk.exe`):
+one program that is the whole kiosk. The control server runs in-process (with
+in-server HTTPS + Basic Auth on `:443` — no Caddy needed), the kiosk display is
+the app's own fullscreen window driven by the same CDP logic, and a **system
+tray icon** provides:
 
-**Build the installer** (on a Windows box with Node + Inno Setup 6):
+- **Start kiosk** / **Stop kiosk** — show/hide the kiosk window (the panel stays
+  reachable from phones while stopped).
+- **Open control panel** — opens `https://<hostname>.local` (also on
+  double-click).
+- **Quit** — stop everything and exit.
+
+On first run the app generates a self-signed cert + panel password into its
+user-data folder (`%APPDATA%\Planning Center Kiosk`) and writes `panel-login.txt`
+there. Single-instance, restart-on-crash logging to `kiosk.log`, and it always
+runs non-elevated — so the administrator-owned profile bug that plagued the old
+`run.js` setup can't recur.
+
+**Build it** (on a Windows box with Node ≥ 18 and Inno Setup 6; the ISCC env var
+must point at `iscc.exe` if it's not on PATH):
 
 ```powershell
+$env:ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 powershell -ExecutionPolicy Bypass -File installer\windows\build-windows.ps1
 ```
 
-This produces `installer\windows\output\KioskSetup.exe` — a self-contained
-installer (bundles `node.exe`, `caddy.exe`, and the app; no prerequisites).
-It installs to `C:\Program Files\Planning Center Kiosk`, adds itself to
-**Startup** (so `kiosk\run.js` starts the server + Caddy + browser at logon),
-writes the panel password to `panel-login.txt` in the install dir, and opens
-the firewall for `:443`. A desktop/start-menu "Kiosk" icon launches the
-browser windowed.
+This produces:
+- `app\dist\Planning-Center-Kiosk-<version>.exe` — the portable single-file app
+  (self-contained; ~150–200 MB because it embeds a Chromium runtime).
+- `installer\windows\output\KioskSetup.exe` — a slim installer that places it in
+  Program Files, adds Startup/desktop shortcuts, and opens the firewall for
+  `:443`.
 
-For an unattended kiosk, enable Windows **autologon** (netplwiz / registry)
-so the box boots into the session that runs the Startup entry.
+Launch the app from the Start menu / desktop shortcut the first time. The panel
+login is in `%APPDATA%\Planning Center Kiosk\panel-login.txt`.
 
-Dev / test on a Windows laptop without the installer:
-
-```powershell
-npm install
-npm start             # server on http://127.0.0.1:3001
-npm run kiosk         # opens the kiosk browser window (Edge/Chrome)
-```
+For an unattended kiosk, enable Windows **autologon** so the box boots into the
+session that runs the Startup shortcut.
 
 ## macOS (best-effort)
 

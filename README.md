@@ -107,8 +107,7 @@ sudo ./kiosk/install.sh   # system packages, X kiosk session, control server,
                           # Caddy HTTPS+Auth, and optionally Tailscale
 ```
 
-**Windows** — build `KioskSetup.exe` with Inno Setup (see PLATFORMS.md), or
-just `npm install && npm start && npm run kiosk` on a dev laptop.
+**Windows** — build the single-file Electron app with `installer\windows\build-windows.ps1` (a portable exe + slim installer; see PLATFORMS.md). It's one program with a system-tray icon for Start/Stop/Quit.
 
 **macOS** — `./kiosk/install-macos.sh` (Homebrew Node + Caddy + launchd).
 
