@@ -6,39 +6,48 @@ Three things to get right on the real device, in order:
 2. Find/verify the correct PCO live/countdown URL template.
 3. Reach the control panel from a phone/laptop over mDNS.
 
-Assumes you are running Armbian (Orange Pi Zero 3) or Raspberry Pi OS /
-Debian/Ubuntu, with a graphical session that auto-logs-in a user (e.g.
-`lightdm` autologin). Adjust user names and paths to your system.
+Assumes Raspberry Pi OS, Debian, or Ubuntu on **arm64 or amd64** (SBCs like
+the Orange Pi Zero 3 / Raspberry Pi, or x86 Mini PCs) with a display attached
+for the kiosk. Adjust user names and paths to your system.
 
 ---
 
 ## 0. Prerequisites
 
+`kiosk/install.sh` installs all system packages for you (X server, lightdm,
+Chromium, Node.js >= 18, avahi, cec-utils, Caddy, and optionally Tailscale).
+The only real requirement is a supported OS and an attached display/TV for the
+kiosk browser.
+
+If you prefer to pre-install manually, the packages install.sh needs are:
+
 ```bash
 sudo apt update
-sudo apt install -y nodejs npm chromium avahi-daemon x11-xserver-utils unclutter
+sudo apt install -y nodejs chromium xorg lightdm x11-xserver-utils unclutter \
+  matchbox-window-manager xauth avahi-daemon cec-utils
 ```
 
 Notes:
 
-- Node.js needs to be **>= 18**. If your distro ships an older one, use
-  NodeSource (`https://deb.nodesource.com`) or a `.tar.xz` from nodejs.org.
-- The Chromium package is named `chromium` on Debian/Ubuntu/Armbian and was
-  historically `chromium-browser` on Raspberry Pi OS. `launch-kiosk.sh`
-  auto-detects, so the exact name doesn't matter.
-- `x11-xserver-utils` provides `xset` (screen blanking control); `unclutter`
-  hides the cursor. Both are optional (the launcher degrades gracefully).
+- **Ubuntu** ships Chromium as a snap wrapper (a poor fit for a kiosk), so
+  install.sh uses **Google Chrome** there instead; Debian/Raspberry Pi OS get
+  the real `chromium` package. The launcher auto-detects the binary name.
+- Node.js needs to be **>= 18**; install.sh upgrades an old distro Node to
+  Node 20 LTS automatically.
 
-## 1. Install the app and start the control server
+## 1. Install everything
 
 ```bash
 cd planningcenter-timer-kiosk
 sudo ./kiosk/install.sh
 ```
 
-This installs to `/opt/kiosk`, creates `/var/lib/kiosk`, writes the two systemd
-units, and starts `kiosk-control.service`. It does **not** start the browser
-yet — that comes after the login step.
+This installs to `/opt/kiosk`, creates `/var/lib/kiosk`, installs the X
+display stack with a lightdm autologin kiosk session, writes and starts the
+two systemd units (control server + kiosk browser), sets up Caddy (HTTPS +
+Basic Auth on port 443), prints the panel login, and optionally sets up
+Tailscale. When it asks about Tailscale, answer as you like — it's only for
+remote access; the panel works on the local network either way.
 
 ## 2. First-time Chromium login (one-time manual step)
 

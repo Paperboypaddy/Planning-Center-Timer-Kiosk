@@ -91,18 +91,18 @@ npm test
 
 ## Install on the device
 
-See **[docs/SETUP.md](docs/SETUP.md)** for the full walkthrough, including the
-one-time Planning Center login step and how to find/verify the correct live URL
-template. The short version:
+See **[docs/SETUP.md](docs/SETUP.md)** for the full walkthrough. The short
+version — on Raspberry Pi OS, Debian, or Ubuntu (arm64 or amd64):
 
 ```bash
-sudo apt install nodejs chromium avahi-daemon   # or chromium-browser on some distros
-./kiosk/install.sh                               # installs to /opt/kiosk, wires systemd
-# one-time login (as the kiosk X-session user):
-sudo -u kiosk env KIOSK_PROFILE_DIR=/var/lib/kiosk/chromium-profile \
-  /opt/kiosk/kiosk/launch-kiosk.sh --login
-systemctl enable --now kiosk-browser.service
+git clone https://github.com/Paperboypaddy/Planning-Center-Timer-Kiosk.git
+cd Planning-Center-Timer-Kiosk
+sudo ./kiosk/install.sh   # system packages, X kiosk session, control server,
+                          # Caddy HTTPS+Auth, and optionally Tailscale
 ```
+
+Then do the one-time PCO login from the panel's **Kiosk remote control** and
+add your services.
 
 ## URL template
 

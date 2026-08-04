@@ -1,37 +1,105 @@
 #!/usr/bin/env bash
-# Install the kiosk control stack to /opt/kiosk and wire up the systemd units.
+# One-shot installer for the Planning Center kiosk controller.
 #
-# Prerequisites (see docs/SETUP.md):
-#   - Node.js >= 18
-#   - a Chromium browser (chromium / chromium-browser / google-chrome)
-#   - an X session with autologin for the kiosk (ARM boards often use lightdm
-#     autologin; a headless VM needs an X server for the browser unit)
-#   - avahi-daemon (for http://<hostname>.local:3000)
+# Targets Raspberry Pi OS, Debian, and Ubuntu on arm64 or amd64 (SBCs and
+# Mini PCs). Installs everything: system packages, the X/lightdm kiosk
+# session, the control server, Caddy (HTTPS + Basic Auth), and optionally
+# Tailscale for remote access.
 #
-# Adjust with env vars:
-#   KIOSK_DEST_DIR           install location        (default /opt/kiosk)
-#   KIOSK_CONFIG_DIR         config + profile dir    (default /var/lib/kiosk)
-#   KIOSK_BROWSER_USER       user owning X session   (default kiosk)
-#   KIOSK_CONTROL_USER       control server user     (default kiosk)
-#   KIOSK_PANEL_USER         panel login username    (default kiosk)
-#   KIOSK_PANEL_PASSWORD     panel login password    (default: random)
-#   KIOSK_TAILSCALE          "yes"/"no" install Tailscale (default: prompt)
-#   KIOSK_TAILSCALE_AUTHKEY  Tailscale auth key, if you have one
+# Usage:  sudo ./kiosk/install.sh
+#
+# Env overrides:
+#   KIOSK_DEST_DIR           install location          (default /opt/kiosk)
+#   KIOSK_CONFIG_DIR         config + profile dir      (default /var/lib/kiosk)
+#   KIOSK_BROWSER_USER       X session (browser) user  (default kiosk)
+#   KIOSK_CONTROL_USER       control server user       (default kiosk)
+#   KIOSK_PANEL_USER         panel login username      (default kiosk)
+#   KIOSK_PANEL_PASSWORD     panel login password      (default: random)
+#   KIOSK_TAILSCALE          "yes"/"no" Tailscale      (default: prompt)
+#   KIOSK_TAILSCALE_AUTHKEY  Tailscale auth key        (optional)
+#   KIOSK_SKIP_PACKAGES      "1" skip apt installs     (pre-provisioned boxes)
 set -euo pipefail
 
-# Project root (parent of this script's directory: .../kiosk/install.sh).
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_DIR="${KIOSK_DEST_DIR:-/opt/kiosk}"
 CONFIG_DIR="${KIOSK_CONFIG_DIR:-/var/lib/kiosk}"
 BROWSER_USER="${KIOSK_BROWSER_USER:-kiosk}"
 CONTROL_USER="${KIOSK_CONTROL_USER:-kiosk}"
-NODE_BIN="$(command -v node || echo /usr/bin/node)"
+NODE_BIN=""
 
+# --- OS / architecture support ------------------------------------------------
+if [[ ! -f /etc/os-release ]]; then
+  echo "error: cannot detect the OS (/etc/os-release missing). Debian/Ubuntu only." >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+. /etc/os-release
+case "${ID:-}" in
+  debian|ubuntu|raspbian) ;;
+  *)
+    echo "error: only Debian and Ubuntu are supported (found '${ID:-unknown}')." >&2
+    exit 1
+    ;;
+esac
+ARCH="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
+case "$ARCH" in
+  amd64|arm64) ;;
+  *)
+    echo "error: unsupported architecture '$ARCH' (amd64/arm64 only)." >&2
+    exit 1
+    ;;
+esac
+echo "==> Installing on ${PRETTY_NAME:-$ID} ($ARCH)"
+
+# --- System packages ----------------------------------------------------------
+if [[ "${KIOSK_SKIP_PACKAGES:-}" != "1" ]]; then
+  echo "==> Installing system packages (this can take a while)"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq curl ca-certificates git \
+    xorg lightdm xinit x11-xserver-utils unclutter \
+    matchbox-window-manager xauth avahi-daemon \
+    || { echo "error: failed to install X/kiosk packages" >&2; exit 1; }
+
+  # Node.js (>= 18 required). Use the distro package if it's new enough,
+  # otherwise install Node 20 LTS via NodeSource.
+  apt-get install -y -qq nodejs 2>/dev/null || true
+  if ! node --version 2>/dev/null | grep -qE '^v(1[89]|[2-9][0-9])\.'; then
+    echo "==> Distro Node.js too old; installing Node 20 LTS via NodeSource"
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y -qq nodejs
+  fi
+  NODE_BIN="$(command -v node || true)"
+
+  # Chromium. On Ubuntu the apt 'chromium' is a snap wrapper (poor fit for a
+  # kiosk), so use Google Chrome there; Debian/Raspberry Pi OS ship real
+  # chromium.
+  if [[ "$ID" == "ubuntu" ]]; then
+    if ! command -v google-chrome-stable >/dev/null 2>&1; then
+      echo "==> Installing Google Chrome ($ARCH)"
+      curl -fsSL -o /tmp/google-chrome.deb \
+        "https://dl.google.com/linux/direct/google-chrome-stable_current_${ARCH}.deb"
+      apt-get install -y -qq /tmp/google-chrome.deb
+    fi
+  else
+    apt-get install -y -qq chromium
+  fi
+
+  # HDMI-CEC for TV power control.
+  apt-get install -y -qq cec-utils || true
+fi
+
+[[ -n "$NODE_BIN" ]] || NODE_BIN="$(command -v node || echo /usr/bin/node)"
 if [[ ! -x "$NODE_BIN" ]]; then
-  echo "error: Node.js not found. Install Node.js >= 18 first." >&2
+  echo "error: Node.js not found after install. Install Node.js >= 18 first." >&2
+  exit 1
+fi
+if ! command -v chromium chromium-browser google-chrome google-chrome-stable >/dev/null 2>&1; then
+  echo "error: no Chromium/Chrome browser found after install." >&2
   exit 1
 fi
 
+# --- App files -----------------------------------------------------------------
 echo "==> Installing app files to $DEST_DIR"
 mkdir -p "$DEST_DIR" "$CONFIG_DIR"
 cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" \
@@ -40,11 +108,17 @@ cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" \
 echo "==> Installing npm dependencies"
 ( cd "$DEST_DIR" && npm install --omit=dev --no-audit --no-fund )
 
-# The control server must run as an unprivileged user (never root). Create it
-# if it doesn't exist and grant exactly the permissions it needs.
+# --- Users ---------------------------------------------------------------------
+# Control server: unprivileged user (never root); reboot is delegated via a
+# narrow sudoers entry below.
 if ! id -u "$CONTROL_USER" >/dev/null 2>&1; then
   echo "==> Creating control user '$CONTROL_USER'"
   useradd --system --shell /usr/sbin/nologin "$CONTROL_USER"
+fi
+# Browser / X session user (created with a home so XAUTHORITY paths work).
+if ! id -u "$BROWSER_USER" >/dev/null 2>&1; then
+  echo "==> Creating browser user '$BROWSER_USER'"
+  useradd -m -s /bin/bash "$BROWSER_USER"
 fi
 
 # CEC (cec-utils) reads /dev/cec0, usually 660 root:video.
@@ -56,34 +130,44 @@ printf '%s\n' "$CONTROL_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot" \
 chmod 440 /etc/sudoers.d/kiosk-reboot
 visudo -c >/dev/null 2>&1 && echo "==> sudoers entry for '$CONTROL_USER' reboot validated"
 
+# --- systemd units -------------------------------------------------------------
 echo "==> Writing systemd units"
-sed -e "s|@DEST@|$DEST_DIR|g" \
-    -e "s|@NODE_BIN@|$NODE_BIN|g" \
-    -e "s|@CONFIG_DIR@|$CONFIG_DIR|g" \
-    -e "s|@CONTROL_USER@|$CONTROL_USER|g" \
+sed -e "s|@DEST@|$DEST_DIR|g" -e "s|@NODE_BIN@|$NODE_BIN|g" \
+    -e "s|@CONFIG_DIR@|$CONFIG_DIR|g" -e "s|@CONTROL_USER@|$CONTROL_USER|g" \
     "$SRC_DIR/kiosk/kiosk-control.service" > /etc/systemd/system/kiosk-control.service
 
-sed -e "s|@DEST@|$DEST_DIR|g" \
-    -e "s|@CONFIG_DIR@|$CONFIG_DIR|g" \
+sed -e "s|@DEST@|$DEST_DIR|g" -e "s|@CONFIG_DIR@|$CONFIG_DIR|g" \
     -e "s|@BROWSER_USER@|$BROWSER_USER|g" \
     "$SRC_DIR/kiosk/kiosk-browser.service" > /etc/systemd/system/kiosk-browser.service
 
-# The config file belongs to the control user; the browser profile belongs to
-# the browser (X session) user.
+# Config file belongs to the control user; the browser profile to the browser
+# (X session) user.
 chown -R "$CONTROL_USER":"$CONTROL_USER" "$CONFIG_DIR" 2>/dev/null || true
 if [[ "$BROWSER_USER" != "$CONTROL_USER" ]]; then
-  if id "$BROWSER_USER" >/dev/null 2>&1; then
-    chown -R "$BROWSER_USER":"$BROWSER_USER" "$CONFIG_DIR/chromium-profile" 2>/dev/null || true
-  fi
+  chown -R "$BROWSER_USER":"$BROWSER_USER" "$CONFIG_DIR/chromium-profile" 2>/dev/null || true
 fi
+
+# --- X / lightdm autologin kiosk session ---------------------------------------
+echo "==> Setting up the lightdm kiosk session"
+mkdir -p /usr/local/bin /usr/share/xsessions /etc/lightdm/lightdm.conf.d
+cp "$SRC_DIR/kiosk/lightdm/kiosk-session.sh" /usr/local/bin/kiosk-session.sh
+chmod +x /usr/local/bin/kiosk-session.sh
+cp "$SRC_DIR/kiosk/lightdm/kiosk.desktop" /usr/share/xsessions/kiosk.desktop
+sed "s/autologin-user=kiosk/autologin-user=$BROWSER_USER/" \
+  "$SRC_DIR/kiosk/lightdm/50-kiosk-autologin.conf" \
+  > /etc/lightdm/lightdm.conf.d/50-kiosk-autologin.conf
+systemctl set-default graphical.target
 
 systemctl daemon-reload
 systemctl enable kiosk-control.service
 # Always (re)start so a fresh unit (e.g. a new User=) takes effect even when
 # the service was already running.
 systemctl restart kiosk-control.service
+systemctl enable kiosk-browser.service
+# launch-kiosk.sh's wait_for_x handles the boot race with lightdm.
+systemctl restart kiosk-browser.service
 
-# --- Panel access: Caddy reverse proxy with HTTPS + Basic Auth ---
+# --- Panel access: Caddy reverse proxy with HTTPS + Basic Auth ------------------
 # The control server binds to 127.0.0.1 only, so the panel is NOT exposed in
 # the clear. Caddy serves it on the LAN over HTTPS with a shared login.
 # The kiosk browser keeps using http://127.0.0.1:3001 directly (localhost,
@@ -107,7 +191,7 @@ fi
 PANEL_HASH="$(caddy hash-password --plaintext "$PANEL_PASSWORD")"
 
 # Self-signed certificate (valid 10 years) covering the mDNS name, localhost,
-# and the current LAN IP. A bare ":3000" site with `tls internal` does not get
+# and the current LAN IP. A bare ":443" site with `tls internal` does not get
 # automatic HTTPS, so we provide explicit cert files.
 PANEL_HOST="$(hostname).local"
 PANEL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
@@ -135,7 +219,7 @@ EOF
 systemctl enable caddy
 systemctl restart caddy
 
-# --- Tailscale (optional, for remote access) ---
+# --- Tailscale (optional, for remote access) -----------------------------------
 # The panel stays available on the local wifi/ethernet network; Tailscale is
 # just for reaching the Pi remotely. Prompt unless KIOSK_TAILSCALE is set.
 if [[ -z "${KIOSK_TAILSCALE:-}" && -t 0 ]]; then
@@ -162,21 +246,17 @@ case "${KIOSK_TAILSCALE:-no}" in
 esac
 
 echo
-echo "==> Done. Control server is running (localhost only)."
+echo "==> Done. Kiosk is installed and the services are running."
 echo "    Control panel:   https://$(hostname).local"
 echo "    Panel login:     user: $PANEL_USER"
 echo "    Panel password:  $PANEL_PASSWORD"
 echo "    (standard HTTPS port 443; self-signed certificate - accept the"
 echo "     browser warning once per device, and your browser remembers the login)"
 echo
-echo "==> Next steps (see $DEST_DIR/docs/SETUP.md for details):"
+echo "==> Remaining manual step (see $DEST_DIR/docs/SETUP.md):"
+echo "   First-time PCO login. Easiest from the panel: open the control panel,"
+echo "   then 'Kiosk remote control -> Start remote control' and log in to"
+echo "   Planning Center there. (Alternative: attach a keyboard/mouse to the"
+echo "   Pi and run the --login window.)"
 echo
-echo "  1) One-time PCO login (as the $BROWSER_USER user, in the X session):"
-echo "     sudo -u $BROWSER_USER env KIOSK_PROFILE_DIR=$CONFIG_DIR/chromium-profile \\"
-echo "          $DEST_DIR/kiosk/launch-kiosk.sh --login"
-echo "     Log in to Planning Center in the window, then close it."
-echo
-echo "  2) Start the kiosk browser:"
-echo "     systemctl enable --now kiosk-browser.service"
-echo
-echo "  3) Add your services at the control panel."
+echo "   Then add your services at the control panel."
