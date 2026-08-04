@@ -25,6 +25,9 @@ function defaults() {
     // daily reboot (null = off).
     tv: { autoOn: false, leadMinutes: 30 },
     reboot: { cron: null },
+    // Panel (Basic Auth) password. Generated on first TLS start if unset, and
+    // changeable from the panel itself. KIOSK_PANEL_PASSWORD overrides it.
+    panelPassword: null,
     // Optional Planning Center API credentials (personal access token, or
     // "<app_id>:<secret>"). Never exposed back through the API; the effective
     // key is env KIOSK_PCO_API_KEY first, then this.
@@ -71,6 +74,7 @@ function normalize(data) {
     rebootCron = `${Number(data.reboot.at.slice(3))} ${Number(data.reboot.at.slice(0, 2))} * * *`;
   }
   cfg.reboot = { cron: rebootCron };
+  cfg.panelPassword = typeof data.panelPassword === 'string' && data.panelPassword ? data.panelPassword : null;
 
   if (data.pco && typeof data.pco === 'object') {
     cfg.pco = {

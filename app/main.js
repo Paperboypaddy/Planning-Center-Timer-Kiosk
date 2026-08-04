@@ -17,7 +17,6 @@ const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const crypto = require('crypto');
 
 const LOCAL_PORT = 3001;
 const PANEL_PORT = 443;
@@ -44,6 +43,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+// A friendly data-folder name (Electron would otherwise use the package name).
+app.setName('Planning Center Kiosk');
+
 // Same Chromium switches the Linux kiosk uses: CDP for the control server,
 // and a dark background so page loads don't flash white.
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
@@ -51,46 +53,28 @@ app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 app.commandLine.appendSwitch('force-dark-mode');
 app.commandLine.appendSwitch('blink-settings', 'backgroundcolor=FF000000');
 
-function parseLogin(file) {
-  const text = fs.readFileSync(file, 'utf8');
-  const user = /^User: (.+)$/m.exec(text);
-  const pass = /^Password: (.+)$/m.exec(text);
-  return { user: user ? user[1] : 'kiosk', password: pass ? pass[1] : '' };
-}
-
-// First run: generate the self-signed cert and the panel password.
-function ensureSecrets(userData) {
+// First run: generate the self-signed cert. The panel password is owned by
+// the control server (generated into config.json + panel-login.txt on TLS
+// start) so it can be changed from the panel itself.
+function ensureCert(userData) {
   const certFile = path.join(userData, 'kiosk-cert.pem');
   const keyFile = path.join(userData, 'kiosk-key.pem');
-  const loginFile = path.join(userData, 'panel-login.txt');
-  if (!fs.existsSync(certFile) || !fs.existsSync(keyFile)) {
-    const { generateCert } = require('./kiosk/gen-cert');
-    return generateCert(userData, PANEL_HOST).then(() => {
-      if (!fs.existsSync(loginFile)) {
-        const password = crypto.randomBytes(18).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
-        fs.writeFileSync(
-          loginFile,
-          `Planning Center Kiosk control panel\nURL: https://${PANEL_HOST}\nUser: kiosk\nPassword: ${password}\n`
-        );
-        log(`first run: generated cert + panel password (${loginFile})`);
-      }
-      return { certFile, keyFile, loginFile };
-    });
-  }
-  return Promise.resolve({ certFile, keyFile, loginFile });
+  if (fs.existsSync(certFile) && fs.existsSync(keyFile)) return Promise.resolve({ certFile, keyFile });
+  const { generateCert } = require('./kiosk/gen-cert');
+  return generateCert(userData, PANEL_HOST).then(() => {
+    log(`generated self-signed cert (${PANEL_HOST})`);
+    return { certFile, keyFile };
+  });
 }
 
 // Start the control server in-process (same server/index.js used everywhere).
 function startServer(userData) {
-  return ensureSecrets(userData).then(({ certFile, keyFile, loginFile }) => {
-    const login = parseLogin(loginFile);
+  return ensureCert(userData).then(({ certFile, keyFile }) => {
     process.env.KIOSK_PORT = String(LOCAL_PORT);
     process.env.KIOSK_PANEL_PORT = String(PANEL_PORT);
     process.env.KIOSK_TLS = '1';
     process.env.KIOSK_CERT = certFile;
     process.env.KIOSK_KEY = keyFile;
-    process.env.KIOSK_PANEL_USER = login.user;
-    process.env.KIOSK_PANEL_PASSWORD = login.password;
     process.env.KIOSK_CONFIG = path.join(userData, 'config.json');
     require('./server/index.js');
     log(`control server started (panel https://${PANEL_HOST}, local :${LOCAL_PORT})`);
@@ -174,8 +158,27 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(() => {
+  const appData = app.getPath('appData');
   const userData = app.getPath('userData');
   fs.mkdirSync(userData, { recursive: true });
+
+  // One-time migration from the pre-setName data folder.
+  const legacy = path.join(appData, 'planning-center-kiosk');
+  if (legacy !== userData && fs.existsSync(legacy)) {
+    for (const f of fs.readdirSync(legacy)) {
+      const src = path.join(legacy, f);
+      const dst = path.join(userData, f);
+      if (fs.existsSync(src) && fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+        try {
+          fs.copyFileSync(src, dst);
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+    log(`migrated data from ${legacy}`);
+  }
+
   logPath = path.join(userData, 'kiosk.log');
   log(`--- kiosk app starting (v${app.getVersion()}) ---`);
 

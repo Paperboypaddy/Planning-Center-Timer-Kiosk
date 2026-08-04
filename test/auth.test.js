@@ -52,3 +52,15 @@ test('LAN clients pass with the correct login and are rejected with a wrong one'
   const bad = await call(mw, '192.168.1.5', BAD);
   assert.equal(bad.status, 401);
 });
+
+test('a password getter is re-read per request (live changes take effect)', async () => {
+  let password = 'firstpass123';
+  const mw = basicAuth('kiosk', () => password);
+  const ok1 = 'Basic ' + Buffer.from('kiosk:firstpass123').toString('base64');
+  assert.equal((await call(mw, '192.168.1.5', ok1)).passed, true);
+
+  password = 'secondpass456';
+  const ok2 = 'Basic ' + Buffer.from('kiosk:secondpass456').toString('base64');
+  assert.equal((await call(mw, '192.168.1.5', ok2)).passed, true);
+  assert.equal((await call(mw, '192.168.1.5', ok1)).status, 401);
+});

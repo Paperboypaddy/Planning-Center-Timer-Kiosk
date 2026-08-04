@@ -139,6 +139,11 @@ The panel is served through **Caddy** with HTTPS (self-signed certificate) and
 about the self-signed certificate — accept it once, then your browser
 remembers both the exception and the login.
 
+On the **Windows single-file app**, the panel password is generated on first
+run (`%APPDATA%\Planning Center Kiosk\panel-login.txt`) and can be changed
+any time from the panel: **Settings → Change panel password**. (On Linux the
+login is the one set up by `install.sh`/Caddy.)
+
 If `.local` doesn't resolve (some Android/iOS edge cases), use the IP directly:
 `ip -4 addr show` → open `https://<ip>`.
 

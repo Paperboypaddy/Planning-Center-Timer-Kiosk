@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Run the Node test suite (cross-platform core).
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  # Build the Windows single-file Electron app + the Inno installer.
+  # GitHub-hosted Windows runners are elevated, so electron-builder's
+  # WinCodeSign symlink extraction works without Developer Mode.
+  windows-build:
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build the portable app + installer
+        shell: powershell
+        run: .\installer\windows\build-windows.ps1
+        env:
+          ISCC: C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+      - name: Upload portable app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Planning-Center-Kiosk-portable
+          path: app/dist/Planning-Center-Kiosk.exe
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KioskSetup
+          path: installer/windows/output/KioskSetup.exe
+
+  # Source tarball for easy transfer to a Linux kiosk (no node_modules, no git).
+  package:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create source tarball
+        run: git archive --format=tar.gz -o planningcenter-timer-kiosk.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planningcenter-timer-kiosk-source
+          path: planningcenter-timer-kiosk.tar.gz

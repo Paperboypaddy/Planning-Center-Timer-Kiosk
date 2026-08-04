@@ -92,6 +92,7 @@
     populateDisplayTypes();
     syncTvSettings();
     syncReboot();
+    syncPanelPassword();
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -333,6 +334,39 @@
       setRebootMsg('Save failed: ' + err.message, 'err');
     }
     refresh();
+  });
+
+  // --- Panel password ---
+
+  function syncPanelPassword() {
+    if (!state) return;
+    const managed = !(state.panelPasswordSet);
+    document.getElementById('panel-password-form').classList.toggle('hidden', managed);
+    document.getElementById('panel-password-managed').classList.toggle('hidden', !managed);
+  }
+
+  document.getElementById('save-panel-password').addEventListener('click', async () => {
+    const currentPassword = document.getElementById('panel-current').value;
+    const newPassword = document.getElementById('panel-new').value;
+    const msgEl = document.getElementById('panel-password-msg');
+    if (newPassword.length < 8) {
+      msgEl.textContent = 'New password must be at least 8 characters.';
+      msgEl.className = 'msg err';
+      return;
+    }
+    try {
+      await api('/api/panel/password', {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      msgEl.textContent = 'Panel password changed. You\u2019ll be asked to log in again with the new one.';
+      msgEl.className = 'msg ok';
+      document.getElementById('panel-current').value = '';
+      document.getElementById('panel-new').value = '';
+    } catch (err) {
+      msgEl.textContent = 'Could not change: ' + err.message;
+      msgEl.className = 'msg err';
+    }
   });
 
   // --- Planning Center import section ---

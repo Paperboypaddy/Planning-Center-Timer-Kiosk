@@ -1,13 +1,15 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
+const os = require('os');
 const path = require('path');
 
-const { loadConfig } = require('./config');
+const { loadConfig, saveConfig } = require('./config');
 const { KioskDriver } = require('./kiosk');
 const { createApp } = require('./app');
-const { basicAuth } = require('./auth');
+const { basicAuth, writePanelLoginFile } = require('./auth');
 
 // By default the control server binds to localhost only; on Linux/macOS Caddy
 // (see kiosk/install.sh) exposes the panel over HTTPS + Basic Auth on the LAN.
@@ -22,7 +24,6 @@ const TLS = process.env.KIOSK_TLS === '1';
 const CERT_FILE = process.env.KIOSK_CERT || '';
 const KEY_FILE = process.env.KIOSK_KEY || '';
 const PANEL_USER = process.env.KIOSK_PANEL_USER || 'kiosk';
-const PANEL_PASSWORD = process.env.KIOSK_PANEL_PASSWORD || '';
 const CONFIG_PATH = process.env.KIOSK_CONFIG || path.join(__dirname, '..', 'config.json');
 const CDP_HOST = process.env.KIOSK_CDP_HOST || '127.0.0.1';
 const CDP_PORT = Number(process.env.KIOSK_CDP_PORT || 9222);
@@ -53,8 +54,25 @@ if (TLS) {
     key: fs.readFileSync(KEY_FILE),
     cert: fs.readFileSync(CERT_FILE),
   };
+  // First run (or a lost config): generate the panel password, persist it, and
+  // note it in panel-login.txt next to the config. The operator can change it
+  // from the panel afterwards.
+  let panelPassword = process.env.KIOSK_PANEL_PASSWORD || (config.panelPassword || '');
+  if (!panelPassword) {
+    panelPassword = crypto.randomBytes(18).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
+    config.panelPassword = panelPassword;
+    try {
+      saveConfig(CONFIG_PATH, config);
+      console.log(`[kiosk-control] generated panel password -> ${path.join(path.dirname(CONFIG_PATH), 'panel-login.txt')}`);
+    } catch (err) {
+      console.error(`[kiosk-control] could not persist panel password: ${err.message}`);
+    }
+  }
+  writePanelLoginFile(CONFIG_PATH, PANEL_USER, panelPassword);
+  // Read the password live so a change from the panel applies immediately.
+  const auth = basicAuth(PANEL_USER, () => process.env.KIOSK_PANEL_PASSWORD || (config.panelPassword || ''));
   https
-    .createServer(options, (req, res) => basicAuth(PANEL_USER, PANEL_PASSWORD)(req, res, () => app(req, res)))
+    .createServer(options, (req, res) => auth(req, res, () => app(req, res)))
     .listen(PANEL_PORT, '0.0.0.0', () => {
       console.log(`[kiosk-control] panel https://0.0.0.0:${PANEL_PORT} (Basic Auth; loopback exempt)`);
     });

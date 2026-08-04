@@ -295,6 +295,19 @@ as Chromium reconnects.
   `https://<hostname>.local` (HTTPS + Basic Auth via Caddy on :443) from a phone
   without remembering an IP.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push/PR:
+
+- **Test** (ubuntu) — the full Node test suite.
+- **Windows build** (windows) — builds the single-file Electron app and the
+  Inno installer, uploaded as GitHub Actions artifacts (GitHub's runners are
+  elevated, so the WinCodeSign symlink step needs no Developer Mode).
+- **Package** (ubuntu) — a source tarball for copying to a Linux kiosk.
+
+Trigger the Windows build manually any time from the Actions tab
+(*workflow_dispatch*), and the artifacts are ready to download from the run.
+
 ## Security notes
 
 - CDP is bound to **127.0.0.1** only, so only local processes can drive the

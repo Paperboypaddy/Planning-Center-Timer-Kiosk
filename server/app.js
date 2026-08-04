@@ -9,6 +9,7 @@ const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
+const { writePanelLoginFile } = require('./auth');
 const cecModule = require('./cec');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -64,6 +65,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       tv: { available: cec.isAvailable(), autoOn: config.tv.autoOn, leadMinutes: config.tv.leadMinutes },
       reboot: { cron: config.reboot.cron },
       platform: { os: process.platform },
+      panelPasswordSet: !!panelPassword(),
     };
   }
 
@@ -74,6 +76,11 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   // Effective PCO credentials: env var wins, then the GUI-saved config value.
   function pcoApiKey() {
     return process.env.KIOSK_PCO_API_KEY || (config.pco && config.pco.apiKey) || '';
+  }
+
+  const panelUser = process.env.KIOSK_PANEL_USER || 'kiosk';
+  function panelPassword() {
+    return process.env.KIOSK_PANEL_PASSWORD || (config.panelPassword || '');
   }
 
   function handlePcoError(err, res) {
@@ -166,6 +173,29 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       tvLeadMinutes: config.tv.leadMinutes,
       rebootCron: config.reboot.cron,
     });
+  });
+
+  // Change the panel password. Requires the current password, so a change is
+  // possible from the panel itself (which sits behind Basic Auth on the LAN).
+  app.put('/api/panel/password', (req, res) => {
+    const body = req.body || {};
+    const current = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+    const next = typeof body.newPassword === 'string' ? body.newPassword : '';
+    if (process.env.KIOSK_PANEL_PASSWORD) {
+      return res.status(400).json({
+        error: 'the panel password is managed by KIOSK_PANEL_PASSWORD (env); unset it to change it from here',
+      });
+    }
+    if (!panelPassword() || current !== panelPassword()) {
+      return res.status(401).json({ error: 'current password is incorrect' });
+    }
+    if (next.length < 8) {
+      return res.status(400).json({ error: 'new password must be at least 8 characters' });
+    }
+    config.panelPassword = next;
+    if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    writePanelLoginFile(configPath, panelUser, next);
+    res.json({ ok: true });
   });
 
   // --- TV (HDMI-CEC) power control ---

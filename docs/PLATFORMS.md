@@ -50,8 +50,10 @@ tray icon** provides:
 
 On first run the app generates a self-signed cert + panel password into its
 user-data folder (`%APPDATA%\Planning Center Kiosk`) and writes `panel-login.txt`
-there. Single-instance, restart-on-crash logging to `kiosk.log`, and it always
-runs non-elevated — so the administrator-owned profile bug that plagued the old
+there. Once you're in the panel you can change the password any time from
+**Settings → Change panel password** (it applies immediately, no restart).
+Single-instance, restart-on-crash logging to `kiosk.log`, and it always runs
+non-elevated — so the administrator-owned profile bug that plagued the old
 `run.js` setup can't recur.
 
 **Build it** (on a Windows box with Node ≥ 18 and Inno Setup 6; the ISCC env var

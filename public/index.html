@@ -48,6 +48,16 @@
     </select>
     <p class="hint">Applied to every service you load, using the toggle on the PCO live page.</p>
 
+    <div id="panel-password-form">
+      <label for="panel-current">Current panel password</label>
+      <input id="panel-current" type="password" autocomplete="current-password">
+      <label for="panel-new">New panel password <em>(8+ characters)</em></label>
+      <input id="panel-new" type="password" autocomplete="new-password">
+      <button id="save-panel-password" class="btn btn-ghost">Change panel password</button>
+      <div id="panel-password-msg" class="msg" role="status"></div>
+    </div>
+    <p id="panel-password-managed" class="hint hidden">The panel login is managed by the installer on this platform.</p>
+
     <div class="settings-actions">
       <button id="apply-kiosk-settings" class="btn btn-ghost">Apply to kiosk now</button>
       <button id="save-template" class="btn btn-primary">Save settings</button>

@@ -22,6 +22,7 @@ test('defaults has the verified PCO live URL template', () => {
     defaultTheme: null,
     tv: { autoOn: false, leadMinutes: 30 },
     reboot: { cron: null },
+    panelPassword: null,
     pco: { apiKey: null },
   });
 });
@@ -52,6 +53,12 @@ test('normalize keeps serviceTypeId on services', () => {
   const cfg = normalize({ services: [{ id: 'a', serviceId: '1', serviceTypeId: '100' }] });
   assert.equal(cfg.services[0].serviceTypeId, '100');
   assert.equal(normalize({ services: [{ id: 'a', serviceId: '1' }] }).services[0].serviceTypeId, null);
+});
+
+test('normalize keeps the panel password', () => {
+  assert.equal(normalize({ panelPassword: 'supersecret' }).panelPassword, 'supersecret');
+  assert.equal(normalize({ panelPassword: '' }).panelPassword, null);
+  assert.equal(normalize({}).panelPassword, null);
 });
 
 test('normalize keeps well-formed services', () => {
