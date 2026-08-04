@@ -29,7 +29,7 @@ Name: "startup"; Description: "Start the kiosk automatically at logon"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"
 
 [Files]
-Source: "..\..\app\dist\Planning-Center-Kiosk-*.exe"; DestDir: "{app}"; DestName: "Planning Center Kiosk.exe"; Flags: ignoreversion
+Source: "..\..\app\dist\Planning-Center-Kiosk.exe"; DestDir: "{app}"; DestName: "Planning Center Kiosk.exe"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}\Planning Center Kiosk"; Filename: "{app}\Planning Center Kiosk.exe"; WorkingDir: "{app}"

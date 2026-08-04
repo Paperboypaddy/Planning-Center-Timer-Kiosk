@@ -33,6 +33,14 @@ try {
 }
 
 Write-Host "==> Building the portable single exe"
+# electron-builder extracts WinCodeSign, which contains symlinks. That needs
+# either an elevated shell or Windows Developer Mode, else it fails with
+# "Cannot create symbolic link". Warn up front so the fix is obvious.
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$devMode = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense -eq 1
+if (-not $isAdmin -and -not $devMode) {
+  Write-Warning "Developer Mode is off and this shell isn't elevated. electron-builder needs to create symlinks, so either enable Developer Mode (Settings > Privacy & Security > For developers) or run this from an Administrator PowerShell, or the build will fail with 'Cannot create symbolic link'."
+}
 Push-Location $App
 try {
   npx electron-builder --win portable

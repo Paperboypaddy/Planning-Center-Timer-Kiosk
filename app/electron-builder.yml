@@ -15,4 +15,4 @@ win:
     - portable
   icon: build/icon.ico
 portable:
-  artifactName: Planning-Center-Kiosk-${version}.exe
+  artifactName: Planning-Center-Kiosk.exe
