@@ -104,6 +104,7 @@ echo "==> Installing app files to $DEST_DIR"
 mkdir -p "$DEST_DIR" "$CONFIG_DIR"
 cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" \
       "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$DEST_DIR"
+chmod +x "$DEST_DIR/kiosk/"*.sh 2>/dev/null || true
 
 echo "==> Installing npm dependencies"
 ( cd "$DEST_DIR" && npm install --omit=dev --no-audit --no-fund )
