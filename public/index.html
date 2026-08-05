@@ -178,6 +178,21 @@
     <div id="reboot-msg" class="msg" role="status"></div>
   </section>
 
+  <section class="settings">
+    <div class="section-head">
+      <h2>Software update</h2>
+    </div>
+    <p class="hint">Current version: <code id="update-version">\u2014</code></p>
+    <div class="remote-actions">
+      <button id="check-update" class="btn btn-ghost">Check for updates</button>
+    </div>
+    <div id="update-result" class="msg" role="status"></div>
+    <div id="update-apply" class="hidden">
+      <button id="apply-update" class="btn btn-primary">Download &amp; install update</button>
+    </div>
+    <div id="update-hint" class="hint hidden"></div>
+  </section>
+
   <p class="footer">Open <code>/nowplaying</code> on the TV's browser to see the current state.</p>
 </main>
 

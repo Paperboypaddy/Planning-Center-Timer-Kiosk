@@ -177,6 +177,7 @@ label { display: block; font-size: 0.9rem; margin: 0.9rem 0 0.35rem; font-weight
 label em { color: var(--muted); font-weight: 400; }
 
 input[type="text"],
+input[type="password"],
 input[type="number"],
 input[type="time"],
 select {
@@ -189,6 +190,7 @@ select {
   font: inherit;
 }
 input[type="text"]:focus,
+input[type="password"]:focus,
 input[type="number"]:focus,
 input[type="time"]:focus,
 select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }

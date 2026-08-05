@@ -172,6 +172,7 @@
     populateDisplayTypes();
     syncTvSettings();
     syncReboot();
+    document.getElementById('update-version').textContent = (state && state.version) || '\u2014';
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -440,6 +441,59 @@
     } catch (err) {
       msgEl.textContent = 'Could not change: ' + err.message;
       msgEl.className = 'msg err';
+    }
+  });
+
+  // --- Software update ---
+
+  document.getElementById('check-update').addEventListener('click', async () => {
+    const resultEl = document.getElementById('update-result');
+    const applyWrap = document.getElementById('update-apply');
+    const hintEl = document.getElementById('update-hint');
+    resultEl.textContent = 'Checking\u2026';
+    resultEl.className = 'msg';
+    applyWrap.classList.add('hidden');
+    hintEl.classList.add('hidden');
+    try {
+      const r = await api('/api/update/status');
+      if (r.updateAvailable) {
+        resultEl.textContent = 'Update available: version ' + r.latestVersion + ' (you have ' + r.version + ').';
+        resultEl.className = 'msg ok';
+        applyWrap.classList.remove('hidden');
+        hintEl.classList.remove('hidden');
+        hintEl.textContent = r.note || 'Apply it below, or download from the release page.';
+      } else if (r.note) {
+        resultEl.textContent = 'No release published yet \u2014 you\u2019re on the latest.';
+        resultEl.className = 'msg';
+      } else {
+        resultEl.textContent = 'You\u2019re up to date (version ' + r.version + ').';
+        resultEl.className = 'msg ok';
+      }
+    } catch (err) {
+      resultEl.textContent = 'Could not check: ' + err.message;
+      resultEl.className = 'msg err';
+    }
+  });
+
+  document.getElementById('apply-update').addEventListener('click', async () => {
+    const resultEl = document.getElementById('update-result');
+    resultEl.textContent = 'Applying\u2026';
+    resultEl.className = 'msg';
+    try {
+      const r = await api('/api/update', { method: 'POST' });
+      if (r.ok) {
+        resultEl.textContent = r.message;
+        resultEl.className = 'msg ok';
+      } else {
+        resultEl.textContent = r.hint || 'Not automatic on this platform.';
+        resultEl.className = 'msg';
+        if (r.releaseUrl) {
+          resultEl.textContent += ' Download: ' + r.releaseUrl;
+        }
+      }
+    } catch (err) {
+      resultEl.textContent = 'Update failed: ' + err.message;
+      resultEl.className = 'msg err';
     }
   });
 

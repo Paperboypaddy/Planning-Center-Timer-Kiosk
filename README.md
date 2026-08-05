@@ -308,6 +308,15 @@ as Chromium reconnects.
 Trigger the Windows build manually any time from the Actions tab
 (*workflow_dispatch*), and the artifacts are ready to download from the run.
 
+## Software updates
+
+The panel's **Software update** section shows the running version and checks
+GitHub for a newer release (from the repo's Releases). To publish an update,
+tag a release `vX.Y.Z` on GitHub — the panel will then offer it. On Linux the
+panel can apply the update itself (it downloads the release source, re-runs
+`install.sh`, and restarts the services); on Windows/macOS it links to the
+release for a manual reinstall (replace the exe / re-run `install-macos.sh`).
+
 ## Security notes
 
 - CDP is bound to **127.0.0.1** only, so only local processes can drive the

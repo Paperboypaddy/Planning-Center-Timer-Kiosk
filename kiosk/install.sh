@@ -124,11 +124,19 @@ fi
 # CEC (cec-utils) reads /dev/cec0, usually 660 root:video.
 usermod -aG video "$CONTROL_USER" 2>/dev/null || true
 
-# Narrow sudo grant so the scheduler can reboot, and nothing else.
-printf '%s\n' "$CONTROL_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot" \
-  > /etc/sudoers.d/kiosk-reboot
+# Persist the install choices so update.sh can reinstall faithfully.
+printf 'KIOSK_BROWSER_USER=%s\nKIOSK_CONTROL_USER=%s\n' "$BROWSER_USER" "$CONTROL_USER" \
+  > "$CONFIG_DIR/.install-env"
+chown "$CONTROL_USER":"$CONTROL_USER" "$CONFIG_DIR/.install-env" 2>/dev/null || true
+
+# Narrow sudo grants: reboot for the scheduler, and the update script so the
+# panel can apply software updates. Nothing else.
+cat > /etc/sudoers.d/kiosk-reboot <<EOF
+$CONTROL_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
+$CONTROL_USER ALL=(root) NOPASSWD: $DEST_DIR/kiosk/update.sh
+EOF
 chmod 440 /etc/sudoers.d/kiosk-reboot
-visudo -c >/dev/null 2>&1 && echo "==> sudoers entry for '$CONTROL_USER' reboot validated"
+visudo -c >/dev/null 2>&1 && echo "==> sudoers entries for '$CONTROL_USER' validated"
 
 # --- systemd units -------------------------------------------------------------
 echo "==> Writing systemd units"

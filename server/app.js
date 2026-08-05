@@ -3,12 +3,14 @@
 const crypto = require('crypto');
 const path = require('path');
 const express = require('express');
+const { spawn } = require('child_process');
 
 const { saveConfig } = require('./config');
 const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
+const { getUpdateInfo, releasesUrl } = require('./update');
 const {
   createSession,
   destroySession,
@@ -26,7 +28,7 @@ const cecModule = require('./cec');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
-function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, runScheduler = false, rebootFn = null }) {
+function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, runScheduler = false, rebootFn = null, version = require('../package.json').version }) {
   kiosk.idleUrl = idleUrl || `http://127.0.0.1:3001/nowplaying`;
 
   function persist() {
@@ -78,6 +80,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       reboot: { cron: config.reboot.cron },
       platform: { os: process.platform },
       adminConfigured: adminConfigured(),
+      version,
     };
   }
 
@@ -245,6 +248,39 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     config.admin.passwordHash = await hashPassword(next);
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({ ok: true });
+  });
+
+  // --- Software update ---
+
+  app.get('/api/update/status', async (req, res) => {
+    try {
+      res.json(await getUpdateInfo({ version, signal: req.signal }));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  });
+
+  // Apply the update. Linux auto-reinstalls from the latest release (a script
+  // invoked via a narrow sudoers entry); other platforms show the download.
+  app.post('/api/update', (req, res) => {
+    if (process.platform === 'linux') {
+      const script = process.env.KIOSK_UPDATE_SCRIPT || '/opt/kiosk/kiosk/update.sh';
+      const child = spawn('sudo', ['-n', script], { detached: true, stdio: 'ignore' });
+      child.on('error', (err) => {
+        logger.error(`[update] could not start update: ${err.message}`);
+        res.status(502).json({ error: `could not start the update: ${err.message}`, hint: `run manually: sudo ${script}` });
+      });
+      child.on('spawn', () => {
+        logger.log(`[update] update script started: ${script}`);
+        res.json({ ok: true, message: 'update started; the kiosk will reinstall and restart' });
+      });
+    } else {
+      res.json({
+        ok: false,
+        hint: 'On this platform, download the latest release and reinstall (Windows: replace the exe; macOS: re-run install-macos.sh).',
+        releaseUrl: releasesUrl(),
+      });
+    }
   });
 
   // --- TV (HDMI-CEC) power control ---
