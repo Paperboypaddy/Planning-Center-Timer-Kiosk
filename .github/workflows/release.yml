@@ -7,6 +7,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -23,7 +26,7 @@ jobs:
         env:
           ISCC: C:\Program Files (x86)\Inno Setup 6\ISCC.exe
       - name: Attach to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             app/dist/Planning-Center-Kiosk.exe
@@ -36,6 +39,6 @@ jobs:
       - name: Build the source tarball
         run: git archive --format=tar.gz -o planningcenter-timer-kiosk.tar.gz HEAD
       - name: Attach to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: planningcenter-timer-kiosk.tar.gz
