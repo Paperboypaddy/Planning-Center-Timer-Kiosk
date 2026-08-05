@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # macOS installer for the Planning Center kiosk. Same cross-platform code as
-# Linux/Windows; Caddy serves the panel (HTTPS + Basic Auth), launchd keeps
+# Linux/Windows; Caddy serves the panel (HTTPS), launchd keeps
 # the supervisor alive in your GUI session.
 #
 # Prerequisites: Google Chrome, and Homebrew (used to install Node + Caddy).
@@ -86,7 +86,7 @@ sudo chmod +x "$APP/Contents/MacOS/Kiosk"
 
 echo
 echo "==> Done."
-echo "    Panel:      https://$(hostname).local   (login printed during setup;"
-echo "                also saved to $DEST_DIR/panel-login.txt)"
+echo "    Panel:      https://$(hostname).local   (create the admin account on"
+echo "                first visit)"
 echo "    Control:    /Applications/Planning Center Kiosk.app"
 echo "    Note:       allow Caddy in the macOS firewall when prompted."

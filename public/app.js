@@ -14,13 +14,93 @@
 
   let state = null;
   let editingId = null;
+  let authState = null;
+
+  const authView = document.getElementById('auth-view');
+  const panelView = document.getElementById('panel-view');
+  const authTitle = document.getElementById('auth-title');
+  const authHint = document.getElementById('auth-hint');
+  const authUsername = document.getElementById('auth-username');
+  const authPassword = document.getElementById('auth-password');
+  const authConfirmWrap = document.getElementById('auth-confirm-wrap');
+  const authConfirm = document.getElementById('auth-confirm');
+  const authSubmit = document.getElementById('auth-submit');
+  const authMsg = document.getElementById('auth-msg');
+  const logoutBtn = document.getElementById('logout');
 
   async function api(path, opts) {
     const res = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
+    if (res.status === 401 && !path.startsWith('/api/auth/')) checkAuth();
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.error || ('HTTP ' + res.status)), { status: res.status, detail: data.detail });
     return data;
   }
+
+  function setAuthMsg(text, cls) {
+    authMsg.textContent = text;
+    authMsg.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  function showAuth(mode) {
+    authView.classList.remove('hidden');
+    panelView.classList.add('hidden');
+    logoutBtn.classList.add('hidden');
+    authTitle.textContent = mode === 'setup' ? 'Create admin account' : 'Sign in';
+    authHint.textContent = mode === 'setup'
+      ? 'This is the first time the kiosk is being set up. Choose the admin username and password (8+ characters) for the control panel.'
+      : 'Enter your admin login to use the control panel.';
+    authConfirmWrap.classList.toggle('hidden', mode !== 'setup');
+    authPassword.setAttribute('autocomplete', mode === 'setup' ? 'new-password' : 'current-password');
+    setAuthMsg('', '');
+  }
+
+  function showPanel() {
+    authView.classList.add('hidden');
+    panelView.classList.remove('hidden');
+    logoutBtn.classList.remove('hidden');
+    refresh();
+  }
+
+  async function checkAuth() {
+    try {
+      authState = await api('/api/auth/status');
+    } catch (err) {
+      authState = { authenticated: false, setupRequired: false };
+    }
+    if (authState.authenticated) showPanel();
+    else if (authState.setupRequired) showAuth('setup');
+    else showAuth('login');
+  }
+
+  authSubmit.addEventListener('click', async () => {
+    const username = authUsername.value.trim();
+    const password = authPassword.value;
+    if (!username) { setAuthMsg('Username is required.', 'err'); return; }
+    if (authState && authState.setupRequired) {
+      if (password.length < 8) { setAuthMsg('Password must be at least 8 characters.', 'err'); return; }
+      if (password !== authConfirm.value) { setAuthMsg('Passwords do not match.', 'err'); return; }
+      try {
+        await api('/api/auth/setup', { method: 'POST', body: JSON.stringify({ username, password }) });
+        authState = { authenticated: true, setupRequired: false };
+        showPanel();
+      } catch (err) { setAuthMsg(err.message, 'err'); }
+    } else {
+      try {
+        await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+        authPassword.value = '';
+        authState = { authenticated: true, setupRequired: false };
+        showPanel();
+      } catch (err) { setAuthMsg(err.message, 'err'); }
+    }
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    try { await api('/api/auth/logout', { method: 'POST' }); } catch (err) { /* ignore */ }
+    authUsername.value = '';
+    authPassword.value = '';
+    authState = { authenticated: false, setupRequired: false };
+    showAuth('login');
+  });
 
   function updateStatus() {
     const connected = !!(state && state.kiosk && state.kiosk.connected);
@@ -92,7 +172,6 @@
     populateDisplayTypes();
     syncTvSettings();
     syncReboot();
-    syncPanelPassword();
     grid.innerHTML = '';
 
     if (!state.services.length) {
@@ -107,6 +186,7 @@
   }
 
   async function refresh() {
+    if (!authState || !authState.authenticated) return;
     try {
       state = await api('/api/state');
     } catch (err) {
@@ -207,6 +287,7 @@
   }
 
   async function refreshTvStatus() {
+    if (!authState || !authState.authenticated) return;
     try {
       const r = await api('/api/tv/status');
       if (!r.available) {
@@ -336,14 +417,7 @@
     refresh();
   });
 
-  // --- Panel password ---
-
-  function syncPanelPassword() {
-    if (!state) return;
-    const managed = !(state.panelPasswordSet);
-    document.getElementById('panel-password-form').classList.toggle('hidden', managed);
-    document.getElementById('panel-password-managed').classList.toggle('hidden', !managed);
-  }
+  // --- Admin password ---
 
   document.getElementById('save-panel-password').addEventListener('click', async () => {
     const currentPassword = document.getElementById('panel-current').value;
@@ -664,9 +738,7 @@
     }
   }
 
-  render(); // syncRemoteState is invoked via render()
-  refresh();
-  refreshTvStatus();
+  checkAuth();
   setInterval(refresh, 5000);
   setInterval(refreshTvStatus, 30000); // CEC status is slower to query
 })();

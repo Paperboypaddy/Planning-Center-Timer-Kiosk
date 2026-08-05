@@ -34,6 +34,29 @@ header {
   z-index: 5;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.auth-view {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+.auth-card {
+  width: 100%;
+  max-width: 22rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+.auth-card h2 { margin: 0 0 0.25rem; }
+
 .brand h1 { margin: 0; font-size: 1.25rem; line-height: 1.2; }
 .tagline { color: var(--muted); font-size: 0.8rem; }
 

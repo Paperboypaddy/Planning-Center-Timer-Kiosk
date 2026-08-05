@@ -31,14 +31,14 @@ sudo ./kiosk/install.sh
 ```
 
 Installs everything: system packages, the X/lightdm kiosk session, the control
-server, Caddy (HTTPS + Basic Auth on :443), and optionally Tailscale. See
+server, Caddy (HTTPS on :443), and optionally Tailscale. See
 [SETUP.md](SETUP.md).
 
 ## Windows (Mini PC / dev laptop)
 
 The Windows build is a **single-file Electron app** (`Planning Center Kiosk.exe`):
 one program that is the whole kiosk. The control server runs in-process (with
-in-server HTTPS + Basic Auth on `:443` — no Caddy needed), the kiosk display is
+in-server HTTPS on `:443` — no Caddy needed), the kiosk display is
 the app's own fullscreen window driven by the same CDP logic, and a **system
 tray icon** provides:
 
@@ -48,13 +48,13 @@ tray icon** provides:
   double-click).
 - **Quit** — stop everything and exit.
 
-On first run the app generates a self-signed cert + panel password into its
-user-data folder (`%APPDATA%\Planning Center Kiosk`) and writes `panel-login.txt`
-there. Once you're in the panel you can change the password any time from
-**Settings → Change panel password** (it applies immediately, no restart).
-Single-instance, restart-on-crash logging to `kiosk.log`, and it always runs
-non-elevated — so the administrator-owned profile bug that plagued the old
-`run.js` setup can't recur.
+On first run the app generates a self-signed cert into its user-data folder
+(`%APPDATA%\Planning Center Kiosk`). Open the panel and create the **admin
+account** on the "Create admin account" screen (username + password); change
+it any time from Settings → Change password. Single-instance, restart-on-crash
+logging to `kiosk.log`, and it always runs non-elevated — so the
+administrator-owned profile bug that plagued the old `run.js` setup can't
+recur.
 
 **Build it** (on a Windows box with Node ≥ 18 and Inno Setup 6; the ISCC env var
 must point at `iscc.exe` if it's not on PATH):
@@ -71,8 +71,8 @@ This produces:
   Program Files, adds Startup/desktop shortcuts, and opens the firewall for
   `:443`.
 
-Launch the app from the Start menu / desktop shortcut the first time. The panel
-login is in `%APPDATA%\Planning Center Kiosk\panel-login.txt`.
+Launch the app from the Start menu / desktop shortcut the first time. Create
+the admin account on the panel's first-run screen.
 
 For an unattended kiosk, enable Windows **autologon** so the box boots into the
 session that runs the Startup shortcut.
@@ -84,7 +84,7 @@ session that runs the Startup shortcut.
 ```
 
 Installs Node + Caddy via Homebrew, copies the app to `/usr/local/
-planningcenter-kiosk`, generates the panel password/cert, installs a launchd
+planningcenter-kiosk`, generates a self-signed cert, installs a launchd
 agent that keeps `kiosk/run.js` (server + Caddy + browser) alive in your GUI
 session, and adds a "Kiosk Control panel" app to /Applications. Allow Caddy in
 the macOS firewall when prompted. The daily-reboot schedule needs elevated

@@ -3,7 +3,7 @@
 #
 # Targets Raspberry Pi OS, Debian, and Ubuntu on arm64 or amd64 (SBCs and
 # Mini PCs). Installs everything: system packages, the X/lightdm kiosk
-# session, the control server, Caddy (HTTPS + Basic Auth), and optionally
+# session, the control server, Caddy (HTTPS), and optionally
 # Tailscale for remote access.
 #
 # Usage:  sudo ./kiosk/install.sh
@@ -167,16 +167,12 @@ systemctl enable kiosk-browser.service
 # launch-kiosk.sh's wait_for_x handles the boot race with lightdm.
 systemctl restart kiosk-browser.service
 
-# --- Panel access: Caddy reverse proxy with HTTPS + Basic Auth ------------------
+# --- Panel access: Caddy reverse proxy with HTTPS ------------------------------
 # The control server binds to 127.0.0.1 only, so the panel is NOT exposed in
-# the clear. Caddy serves it on the LAN over HTTPS with a shared login.
-# The kiosk browser keeps using http://127.0.0.1:3001 directly (localhost,
-# no proxy, no auth).
-PANEL_USER="${KIOSK_PANEL_USER:-kiosk}"
-if [[ -z "${KIOSK_PANEL_PASSWORD:-}" ]]; then
-  PANEL_PASSWORD="$(openssl rand -base64 18 2>/dev/null | tr -d '/+=' | head -c 20 || true)"
-fi
-PANEL_PASSWORD="${KIOSK_PANEL_PASSWORD:-${PANEL_PASSWORD:-changeme}}"
+# the clear. Caddy serves it on the LAN over HTTPS. Authentication is handled
+# by the app itself (a login page with a first-run admin setup), so Caddy is
+# only a TLS proxy. The kiosk browser keeps using http://127.0.0.1:3001
+# directly (localhost, no proxy, no auth).
 
 if ! command -v caddy >/dev/null 2>&1; then
   echo "==> Installing Caddy"
@@ -187,8 +183,6 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get update -qq
   apt-get install -y -qq caddy
 fi
-
-PANEL_HASH="$(caddy hash-password --plaintext "$PANEL_PASSWORD")"
 
 # Self-signed certificate (valid 10 years) covering the mDNS name, localhost,
 # and the current LAN IP. Generated cross-platform via Node (selfsigned); a
@@ -205,9 +199,6 @@ chmod 600 /etc/caddy/kiosk-key.pem
 cat > /etc/caddy/Caddyfile <<EOF
 :443 {
     tls /etc/caddy/kiosk-cert.pem /etc/caddy/kiosk-key.pem
-    basic_auth {
-        $PANEL_USER $PANEL_HASH
-    }
     reverse_proxy 127.0.0.1:3001 {
         flush_interval -1
     }
@@ -245,15 +236,15 @@ esac
 echo
 echo "==> Done. Kiosk is installed and the services are running."
 echo "    Control panel:   https://$(hostname).local"
-echo "    Panel login:     user: $PANEL_USER"
-echo "    Panel password:  $PANEL_PASSWORD"
 echo "    (standard HTTPS port 443; self-signed certificate - accept the"
-echo "     browser warning once per device, and your browser remembers the login)"
+echo "     browser warning once per device)"
 echo
-echo "==> Remaining manual step (see $DEST_DIR/docs/SETUP.md):"
-echo "   First-time PCO login. Easiest from the panel: open the control panel,"
-echo "   then 'Kiosk remote control -> Start remote control' and log in to"
-echo "   Planning Center there. (Alternative: attach a keyboard/mouse to the"
-echo "   Pi and run the --login window.)"
+echo "==> Remaining manual steps:"
+echo "  1) First time: open the control panel and create the admin account"
+echo "     (username + password) on the 'Create admin account' screen."
+echo "  2) First-time PCO login. Easiest from the panel: open the control panel,"
+echo "     then 'Kiosk remote control -> Start remote control' and log in to"
+echo "     Planning Center there. (Alternative: attach a keyboard/mouse to the"
+echo "     Pi and run the --login window.)"
 echo
-echo "   Then add your services at the control panel."
+echo "  3) Then add your services at the control panel."

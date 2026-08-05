@@ -13,10 +13,30 @@
     <h1>Kiosk Control</h1>
     <span class="tagline">Planning Center countdown</span>
   </div>
-  <span id="status-badge" class="badge">...</span>
+  <div class="header-actions">
+    <button id="logout" class="btn btn-ghost hidden">Log out</button>
+    <span id="status-badge" class="badge">...</span>
+  </div>
 </header>
 
-<main>
+<div id="auth-view" class="auth-view hidden">
+  <div class="auth-card">
+    <h2 id="auth-title">Sign in</h2>
+    <p id="auth-hint" class="hint"></p>
+    <label for="auth-username">Username</label>
+    <input id="auth-username" type="text" autocomplete="username">
+    <label for="auth-password">Password</label>
+    <input id="auth-password" type="password" autocomplete="current-password">
+    <div id="auth-confirm-wrap" class="hidden">
+      <label for="auth-confirm">Confirm password</label>
+      <input id="auth-confirm" type="password" autocomplete="new-password">
+    </div>
+    <button id="auth-submit" class="btn btn-primary">Sign in</button>
+    <div id="auth-msg" class="msg" role="status"></div>
+  </div>
+</div>
+
+<main id="panel-view" class="hidden">
   <section>
     <div class="section-head">
       <h2>Services</h2>
@@ -49,14 +69,13 @@
     <p class="hint">Applied to every service you load, using the toggle on the PCO live page.</p>
 
     <div id="panel-password-form">
-      <label for="panel-current">Current panel password</label>
+      <label for="panel-current">Current password</label>
       <input id="panel-current" type="password" autocomplete="current-password">
-      <label for="panel-new">New panel password <em>(8+ characters)</em></label>
+      <label for="panel-new">New password <em>(8+ characters)</em></label>
       <input id="panel-new" type="password" autocomplete="new-password">
-      <button id="save-panel-password" class="btn btn-ghost">Change panel password</button>
+      <button id="save-panel-password" class="btn btn-ghost">Change password</button>
       <div id="panel-password-msg" class="msg" role="status"></div>
     </div>
-    <p id="panel-password-managed" class="hint hidden">The panel login is managed by the installer on this platform.</p>
 
     <div class="settings-actions">
       <button id="apply-kiosk-settings" class="btn btn-ghost">Apply to kiosk now</button>

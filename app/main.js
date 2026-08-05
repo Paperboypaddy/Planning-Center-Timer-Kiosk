@@ -53,9 +53,9 @@ app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 app.commandLine.appendSwitch('force-dark-mode');
 app.commandLine.appendSwitch('blink-settings', 'backgroundcolor=FF000000');
 
-// First run: generate the self-signed cert. The panel password is owned by
-// the control server (generated into config.json + panel-login.txt on TLS
-// start) so it can be changed from the panel itself.
+// First run: generate the self-signed cert. The admin account (username +
+// password) is created from the panel's login/setup screen and stored in
+// config.json, so it can be changed from the panel afterwards.
 function ensureCert(userData) {
   const certFile = path.join(userData, 'kiosk-cert.pem');
   const keyFile = path.join(userData, 'kiosk-key.pem');

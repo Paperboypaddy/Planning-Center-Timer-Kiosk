@@ -9,7 +9,19 @@ const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
-const { writePanelLoginFile } = require('./auth');
+const {
+  createSession,
+  destroySession,
+  getSession,
+  hashPassword,
+  parseCookies,
+  requestIsSecure,
+  requireAuth,
+  sessionToken,
+  setSessionCookie,
+  clearSessionCookie,
+  verifyPassword,
+} = require('./auth');
 const cecModule = require('./cec');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -65,7 +77,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       tv: { available: cec.isAvailable(), autoOn: config.tv.autoOn, leadMinutes: config.tv.leadMinutes },
       reboot: { cron: config.reboot.cron },
       platform: { os: process.platform },
-      panelPasswordSet: !!panelPassword(),
+      adminConfigured: adminConfigured(),
     };
   }
 
@@ -78,9 +90,8 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     return process.env.KIOSK_PCO_API_KEY || (config.pco && config.pco.apiKey) || '';
   }
 
-  const panelUser = process.env.KIOSK_PANEL_USER || 'kiosk';
-  function panelPassword() {
-    return process.env.KIOSK_PANEL_PASSWORD || (config.panelPassword || '');
+  function adminConfigured() {
+    return !!(config.admin && config.admin.passwordHash);
   }
 
   function handlePcoError(err, res) {
@@ -93,8 +104,51 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   }
 
   const app = express();
+  app.set('trust proxy', 1); // trust the TLS-terminating proxy (Caddy) for Secure cookies
   app.use(express.json());
   app.use(express.static(PUBLIC_DIR));
+
+  // --- Authentication (cookie sessions; first-run admin setup) ---
+  app.get('/api/auth/status', (req, res) => {
+    const authenticated = !!getSession(sessionToken(req));
+    res.json({ authenticated, setupRequired: !adminConfigured() });
+  });
+
+  // First-run only: create the admin account.
+  app.post('/api/auth/setup', async (req, res) => {
+    if (adminConfigured()) return res.status(400).json({ error: 'an admin account already exists' });
+    const body = req.body || {};
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    if (password.length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
+    config.admin = { username, passwordHash: await hashPassword(password) };
+    if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    setSessionCookie(res, createSession(username), requestIsSecure(req));
+    res.json({ ok: true, authenticated: true, setupRequired: false });
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    if (!adminConfigured()) return res.status(400).json({ error: 'no admin account yet; set one up first' });
+    const body = req.body || {};
+    const username = typeof body.username === 'string' ? body.username : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (username !== config.admin.username || !(await verifyPassword(password, config.admin.passwordHash))) {
+      return res.status(401).json({ error: 'invalid username or password' });
+    }
+    setSessionCookie(res, createSession(username), requestIsSecure(req));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    destroySession(sessionToken(req));
+    clearSessionCookie(res);
+    res.json({ ok: true });
+  });
+
+  // Everything else under /api requires a session (loopback is always allowed,
+  // so the kiosk window and local control keep working without a login).
+  app.use('/api', requireAuth);
 
   // Idle page shown on the TV while no service is selected. Served locally by
   // this same server; the kiosk browser points at it.
@@ -175,26 +229,21 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     });
   });
 
-  // Change the panel password. Requires the current password, so a change is
-  // possible from the panel itself (which sits behind Basic Auth on the LAN).
-  app.put('/api/panel/password', (req, res) => {
+  // Change the admin password. Requires the current password, so a change is
+  // possible from the panel itself (the panel is behind the session login).
+  app.put('/api/panel/password', async (req, res) => {
     const body = req.body || {};
     const current = typeof body.currentPassword === 'string' ? body.currentPassword : '';
     const next = typeof body.newPassword === 'string' ? body.newPassword : '';
-    if (process.env.KIOSK_PANEL_PASSWORD) {
-      return res.status(400).json({
-        error: 'the panel password is managed by KIOSK_PANEL_PASSWORD (env); unset it to change it from here',
-      });
-    }
-    if (!panelPassword() || current !== panelPassword()) {
+    if (!adminConfigured()) return res.status(400).json({ error: 'no admin account configured' });
+    if (!(await verifyPassword(current, config.admin.passwordHash))) {
       return res.status(401).json({ error: 'current password is incorrect' });
     }
     if (next.length < 8) {
       return res.status(400).json({ error: 'new password must be at least 8 characters' });
     }
-    config.panelPassword = next;
+    config.admin.passwordHash = await hashPassword(next);
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
-    writePanelLoginFile(configPath, panelUser, next);
     res.json({ ok: true });
   });
 

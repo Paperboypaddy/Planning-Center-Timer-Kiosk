@@ -44,10 +44,11 @@ sudo ./kiosk/install.sh
 
 This installs to `/opt/kiosk`, creates `/var/lib/kiosk`, installs the X
 display stack with a lightdm autologin kiosk session, writes and starts the
-two systemd units (control server + kiosk browser), sets up Caddy (HTTPS +
-Basic Auth on port 443), prints the panel login, and optionally sets up
-Tailscale. When it asks about Tailscale, answer as you like — it's only for
-remote access; the panel works on the local network either way.
+two systemd units (control server + kiosk browser), sets up Caddy (HTTPS on
+port 443), leaves the admin account to be created on first visit, and
+optionally sets up Tailscale. When it asks about Tailscale, answer as you
+like — it's only for remote access; the panel works on the local network
+either way.
 
 ## 2. First-time Chromium login (one-time manual step)
 
@@ -133,16 +134,15 @@ e.g. `https://orangepizero3.local` or `https://raspberrypi.local`.
 Find the hostname with `hostname` on the device. The phone/laptop must be on
 the **same Wi-Fi/LAN**.
 
-The panel is served through **Caddy** with HTTPS (self-signed certificate) and
-**HTTP Basic Auth**. The username/password were printed at install time
-(user/pass shown by `kiosk/install.sh`). On first visit each device will warn
-about the self-signed certificate — accept it once, then your browser
-remembers both the exception and the login.
+The panel is served over **HTTPS** (self-signed certificate — accept the
+browser warning once per device) and protected by a **login page**. On the
+very first visit, the panel shows a **"Create admin account"** screen: pick an
+admin username and password (8+ characters). Afterwards it's a normal
+sign-in. Change the password any time from the panel (Settings → Change
+password). The credentials are stored in `config.json` as a bcrypt hash.
 
-On the **Windows single-file app**, the panel password is generated on first
-run (`%APPDATA%\Planning Center Kiosk\panel-login.txt`) and can be changed
-any time from the panel: **Settings → Change panel password**. (On Linux the
-login is the one set up by `install.sh`/Caddy.)
+On the **Windows single-file app** the flow is identical — open the panel and
+create the admin account on first run.
 
 If `.local` doesn't resolve (some Android/iOS edge cases), use the IP directly:
 `ip -4 addr show` → open `https://<ip>`.

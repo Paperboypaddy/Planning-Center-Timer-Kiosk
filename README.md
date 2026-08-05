@@ -18,7 +18,7 @@ trivial from a phone or laptop on the same network — no SSH, no touching the T
 ┌─────────────┐   HTTPS+Auth   ┌───────────┐  HTTP    ┌──────────────────┐  Chrome DevTools   ┌───────────────┐
 │ Phone/laptop│ ─────────────► │ Caddy     │ ───────► │ Control server   │ ────────────────► │ Chromium kiosk │
 │ (browser)   │  control panel │ :443      │          │ 127.0.0.1:3001    │  Page.navigate     │  (the TV)      │
-└─────────────┘  (Basic Auth +  │ (reverse  │          │ (Node.js/Express) │  (true top-level   │   :9222        │
+└─────────────┘  (login page +  │ (reverse  │          │ (Node.js/Express) │  (true top-level   │   :9222        │
                  self-signed   │  proxy)   │          │  config.json      │  navigation, NOT   │  user-data-dir │
                  TLS)          └───────────┘          └──────────────────┘  an iframe)         └───────────────┘
 ```
@@ -292,7 +292,7 @@ as Chromium reconnects.
   (`Page.addScriptToEvaluateOnNewDocument`), which covers sites that paint a
   white shell before their theme loads (e.g. the PCO SPA).
 - **mDNS**: install `avahi-daemon` so the panel is reachable at
-  `https://<hostname>.local` (HTTPS + Basic Auth via Caddy on :443) from a phone
+  `https://<hostname>.local` (login page over HTTPS via Caddy on :443) from a phone
   without remembering an IP.
 
 ## Continuous integration
@@ -314,17 +314,20 @@ Trigger the Windows build manually any time from the Actions tab
   browser tab.
 - The control server itself binds to **127.0.0.1** only. `install.sh` sets up
   a **Caddy** reverse proxy that exposes the panel on the LAN over **HTTPS**
-  (self-signed certificate) behind **HTTP Basic Auth** (one shared login,
-  printed at install time). The one-time Planning Center login and any typed
-  passwords travel over TLS; expect a certificate warning on first visit per
-  device. If you need stronger auth (per-user logins, SSO), put a real
-  reverse proxy in front of Caddy — noted as a possible follow-up.
+  (self-signed certificate); on Windows the Electron app serves in-server
+  HTTPS on `:443`. Either way the panel is fronted by HTTPS.
+- The panel is protected by **cookie-based sessions with a login page**. On
+  first run a "Create admin account" screen sets up the admin username +
+  password (stored in `config.json` as a bcrypt hash); afterwards it's a
+  normal login. The admin password can be changed from the panel (Settings →
+  Change password). Loopback clients (the kiosk window, local control) skip
+  auth; LAN clients need a valid session cookie.
 - The control server runs as an **unprivileged** user (`kiosk` by default).
   Its only elevated permission is a narrow sudoers entry that allows exactly
   `systemctl reboot` (for the reboot schedule) — see `kiosk/install.sh`.
 - The **remote control** streams the kiosk browser and forwards keystrokes —
-  over HTTPS to Caddy, so it is encrypted on the wire. The panel remains
-  LAN-only and is protected by the shared Basic Auth login.
+  over HTTPS, so it is encrypted on the wire. The panel remains LAN-only and
+  is protected by the session login.
 - The optional PCO API key is stored in the config file, owned by the kiosk
   control user (not root); it is never returned by the API. It can also be
   supplied via the `KIOSK_PCO_API_KEY` env var.
