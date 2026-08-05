@@ -1,0 +1,41 @@
+name: Release
+
+# Runs when a release is published (stable or pre-release/beta). Builds the
+# Windows app and attaches the artifacts + a source tarball to that release.
+# Releases are manual — this never runs on a plain push/commit.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build the portable app + installer
+        shell: powershell
+        run: .\installer\windows\build-windows.ps1
+        env:
+          ISCC: C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/dist/Planning-Center-Kiosk.exe
+            installer/windows/output/KioskSetup.exe
+
+  package-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the source tarball
+        run: git archive --format=tar.gz -o planningcenter-timer-kiosk.tar.gz HEAD
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: planningcenter-timer-kiosk.tar.gz

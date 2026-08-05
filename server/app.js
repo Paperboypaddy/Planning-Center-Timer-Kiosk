@@ -81,6 +81,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       platform: { os: process.platform },
       adminConfigured: adminConfigured(),
       version,
+      updatePrereleases: config.update.includePrereleases,
     };
   }
 
@@ -221,6 +222,9 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       }
       config.reboot.cron = value;
     }
+    if (body.updatePrereleases !== undefined) {
+      config.update.includePrereleases = !!body.updatePrereleases;
+    }
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({
       urlTemplate: config.urlTemplate,
@@ -229,6 +233,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       tvAutoOn: config.tv.autoOn,
       tvLeadMinutes: config.tv.leadMinutes,
       rebootCron: config.reboot.cron,
+      updatePrereleases: config.update.includePrereleases,
     });
   });
 
@@ -254,7 +259,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   app.get('/api/update/status', async (req, res) => {
     try {
-      res.json(await getUpdateInfo({ version, signal: req.signal }));
+      res.json(await getUpdateInfo({ version, includePrereleases: config.update.includePrereleases, signal: req.signal }));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }

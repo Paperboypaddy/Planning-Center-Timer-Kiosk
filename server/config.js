@@ -27,6 +27,8 @@ function defaults() {
     reboot: { cron: null },
     // Admin account (created from the panel's first-run setup screen).
     admin: { username: null, passwordHash: null },
+    // Software updates: also offer pre-release (beta) builds.
+    update: { includePrereleases: false },
     // Optional Planning Center API credentials (personal access token, or
     // "<app_id>:<secret>"). Never exposed back through the API; the effective
     // key is env KIOSK_PCO_API_KEY first, then this.
@@ -77,6 +79,7 @@ function normalize(data) {
     username: data.admin && typeof data.admin.username === 'string' && data.admin.username ? data.admin.username : null,
     passwordHash: data.admin && typeof data.admin.passwordHash === 'string' && data.admin.passwordHash ? data.admin.passwordHash : null,
   };
+  cfg.update = { includePrereleases: !!(data.update && data.update.includePrereleases) };
 
   if (data.pco && typeof data.pco === 'object') {
     cfg.pco = {

@@ -172,6 +172,7 @@
     populateDisplayTypes();
     syncTvSettings();
     syncReboot();
+    syncUpdateToggle();
     document.getElementById('update-version').textContent = (state && state.version) || '\u2014';
     grid.innerHTML = '';
 
@@ -445,6 +446,20 @@
   });
 
   // --- Software update ---
+
+  const updatePrereleasesEl = document.getElementById('update-prereleases');
+  function syncUpdateToggle() {
+    if (!state) return;
+    updatePrereleasesEl.checked = !!state.updatePrereleases;
+  }
+  updatePrereleasesEl.addEventListener('change', async () => {
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify({ updatePrereleases: updatePrereleasesEl.checked }) });
+    } catch (err) {
+      alert('Could not save: ' + err.message);
+    }
+    refresh();
+  });
 
   document.getElementById('check-update').addEventListener('click', async () => {
     const resultEl = document.getElementById('update-result');

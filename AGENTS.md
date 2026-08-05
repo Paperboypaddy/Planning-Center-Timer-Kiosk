@@ -43,7 +43,9 @@ Phone/laptop ──HTTPS + login──► Caddy (TLS only) ──► Control ser
   Start / Stop / Open panel / Quit).
 - `.github/workflows/ci.yml` — GitHub Actions: tests (ubuntu), the Windows
   build (portable exe + Inno installer, uploaded as artifacts), and a source
-  tarball.
+  tarball. `.github/workflows/release.yml` runs when a release is *published*
+  (never on a push) and attaches the Windows artifacts + source tarball to that
+  release.
 
 ## Key concepts
 
@@ -109,10 +111,20 @@ Everything the server persists lives in one JSON file (`KIOSK_CONFIG`, default
   "tv": { "autoOn": false, "leadMinutes": 30 },
   "reboot": { "cron": null },
   "admin": { "username": null, "passwordHash": null },
+  "update": { "includePrereleases": false },
   "services": [{ "id": "", "name": "", "serviceId": "", "displayType": "", "serviceTypeId": null }],
   "pco": { "apiKey": null }
 }
 ```
+
+Versions are **date-based** (`YYYY.M.D`, e.g. `2026.8.4`) in `package.json`
+and `app/package.json`; the update checker (`server/update.js`) compares them
+numerically. Releases are created manually from the GitHub Releases page
+(stable `YYYY.M.D`, or `YYYY.M.D-beta` marked as pre-release). `server/update.js`
+uses `/releases/latest` (stable only) unless `config.update.includePrereleases`
+is on (then it reads the newest entry of `/releases`). `.github/workflows/
+release.yml` auto-attaches the Windows artifacts + source tarball when a
+release is published.
 
 - `server/config.js` has a single `normalize()` that validates/migrates every
   field — **when you add a config field, add it to `defaults()` and

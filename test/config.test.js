@@ -23,6 +23,7 @@ test('defaults has the verified PCO live URL template', () => {
     tv: { autoOn: false, leadMinutes: 30 },
     reboot: { cron: null },
     admin: { username: null, passwordHash: null },
+    update: { includePrereleases: false },
     pco: { apiKey: null },
   });
 });
@@ -60,6 +61,11 @@ test('normalize keeps the admin account', () => {
   assert.equal(cfg.admin.username, 'admin');
   assert.equal(cfg.admin.passwordHash, '$2a$10$abc');
   assert.deepEqual(normalize({}).admin, { username: null, passwordHash: null });
+});
+
+test('normalize keeps the prerelease update toggle', () => {
+  assert.equal(normalize({ update: { includePrereleases: true } }).update.includePrereleases, true);
+  assert.equal(normalize({}).update.includePrereleases, false);
 });
 
 test('normalize keeps well-formed services', () => {

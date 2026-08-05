@@ -120,3 +120,18 @@ test('state reports whether an admin account is configured', async () => {
     await ctx.close();
   }
 });
+
+test('settings persist the prerelease update toggle', async () => {
+  const ctx = await startApp({});
+  try {
+    let r = await ctx.send('/api/settings', 'PUT', { updatePrereleases: true });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.updatePrereleases, true);
+    assert.equal(ctx.config.update.includePrereleases, true);
+
+    const state = await ctx.send('/api/state', 'GET');
+    assert.equal(state.body.updatePrereleases, true);
+  } finally {
+    await ctx.close();
+  }
+});

@@ -311,11 +311,21 @@ Trigger the Windows build manually any time from the Actions tab
 ## Software updates
 
 The panel's **Software update** section shows the running version and checks
-GitHub for a newer release (from the repo's Releases). To publish an update,
-tag a release `vX.Y.Z` on GitHub — the panel will then offer it. On Linux the
-panel can apply the update itself (it downloads the release source, re-runs
-`install.sh`, and restarts the services); on Windows/macOS it links to the
-release for a manual reinstall (replace the exe / re-run `install-macos.sh`).
+GitHub for a newer release. Releases are **manual** — they never happen on a
+push or commit; you create one from the GitHub Releases page when you want to
+cut it:
+
+- **Stable release:** tag `YYYY.M.D` (e.g. `2026.8.4`), published normally.
+- **Beta/pre-release:** tag `YYYY.M.D-beta` (e.g. `2026.8.5-beta`) with the
+  "pre-release" checkbox — these only show up if the panel's **Include
+  prereleases (beta/unstable)** toggle is on, so stable panels auto-update and
+  betas stay opt-in.
+
+Publishing a release triggers the `release` workflow, which builds the Windows
+app and **attaches** the portable exe, the installer, and a source tarball to
+the release automatically. On Linux the panel can apply an update itself (it
+downloads the release source, re-runs `install.sh`, and restarts the services);
+on Windows/macOS it links to the release for a manual reinstall.
 
 ## Security notes
 

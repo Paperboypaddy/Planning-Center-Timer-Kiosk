@@ -26,16 +26,21 @@ function compareVersions(a, b) {
 }
 
 // Fetch the latest release from GitHub and compare with the running version.
+// includePrereleases picks the newest release even if it's a beta (the
+// /releases list, newest first); otherwise /releases/latest (stable only) is
+// used, so betas never auto-offer unless the panel enables them.
 // Throws on network/HTTP errors; a 404 (no releases yet) returns a "none" shape.
 async function getUpdateInfo({
   repo = process.env.KIOSK_UPDATE_REPO || DEFAULT_REPO,
   version,
+  includePrereleases = false,
   baseUrl = process.env.KIOSK_UPDATE_BASE || DEFAULT_API_BASE,
   signal,
 } = {}) {
+  const path = includePrereleases ? `/repos/${repo}/releases?per_page=20` : `/repos/${repo}/releases/latest`;
   let res;
   try {
-    res = await fetch(`${baseUrl}/repos/${repo}/releases/latest`, {
+    res = await fetch(`${baseUrl}${path}`, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'planningcenter-timer-kiosk' },
       signal,
     });
@@ -47,7 +52,11 @@ async function getUpdateInfo({
     return { version, latestVersion: null, updateAvailable: false, releaseUrl: null, publishedAt: null, note: 'no releases published yet' };
   }
   if (!res.ok) throw new Error(`update check failed (HTTP ${res.status})`);
-  const data = await res.json();
+  const json = await res.json();
+  const data = Array.isArray(json) ? json[0] || null : json;
+  if (!data) {
+    return { version, latestVersion: null, updateAvailable: false, releaseUrl: null, publishedAt: null, note: 'no releases published yet' };
+  }
   const latest = String(data.tag_name || '').replace(/^v/, '');
   return {
     version,
@@ -55,6 +64,7 @@ async function getUpdateInfo({
     updateAvailable: !!(latest && compareVersions(latest, version) > 0),
     releaseUrl: data.html_url || null,
     publishedAt: data.published_at || null,
+    prerelease: !!data.prerelease,
   };
 }
 
