@@ -29,6 +29,14 @@ CONTROL_USER="${KIOSK_CONTROL_USER:-kiosk}"
 PANEL_PORT="${KIOSK_PANEL_PORT:-443}"
 NODE_BIN=""
 
+# Preserve the original user choices when reinstalling from a fresh checkout.
+# update.sh already loads this file, but manual install.sh reruns need the same
+# behavior or the browser user can silently fall back to the control user.
+if [[ -f "$CONFIG_DIR/.install-env" ]]; then
+  # shellcheck disable=SC1091
+  set -a; . "$CONFIG_DIR/.install-env"; set +a
+fi
+
 # --- OS / architecture support ------------------------------------------------
 if [[ ! -f /etc/os-release ]]; then
   echo "error: cannot detect the OS (/etc/os-release missing). Debian/Ubuntu only." >&2
@@ -80,6 +88,13 @@ if [[ "${KIOSK_SKIP_PACKAGES:-}" != "1" ]]; then
   fi
   NODE_BIN="$(command -v node || true)"
 
+  # Debian-family distributions may package npm separately; NodeSource's
+  # nodejs package normally includes it, so only install it when absent.
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "==> npm not found; installing the distro npm package"
+    apt-get install -y -qq npm
+  fi
+
   # Chromium. On Ubuntu the apt 'chromium' is a snap wrapper (poor fit for a
   # kiosk), so use Google Chrome there; Debian/Raspberry Pi OS ship real
   # chromium.
@@ -101,6 +116,10 @@ fi
 [[ -n "$NODE_BIN" ]] || NODE_BIN="$(command -v node || echo /usr/bin/node)"
 if [[ ! -x "$NODE_BIN" ]]; then
   echo "error: Node.js not found after install. Install Node.js >= 18 first." >&2
+  exit 1
+fi
+if ! command -v npm >/dev/null 2>&1; then
+  echo "error: npm not found after install. Install the npm package and retry." >&2
   exit 1
 fi
 if ! command -v chromium chromium-browser google-chrome google-chrome-stable >/dev/null 2>&1; then
