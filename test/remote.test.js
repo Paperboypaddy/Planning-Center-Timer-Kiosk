@@ -77,10 +77,12 @@ test('remote control: start navigates to login, streams frames, forwards input w
   const ctx = await startApp(mock.port);
 
   try {
-    // Start remote control, pointing the kiosk at the PCO login page.
-    let res = await ctx.send('/api/remote/start', 'POST', { url: LOGIN_URL });
+    // Start remote control — server always navigates to the PCO login URL
+    // (client-supplied URLs are ignored).
+    let res = await ctx.send('/api/remote/start', 'POST', { url: 'https://evil.example/' });
     assert.equal(res.status, 200);
     assert.equal(mock.navigateLog.includes(LOGIN_URL), true);
+    assert.equal(mock.navigateLog.includes('https://evil.example/'), false);
     await waitFor(() => mock.commandLog.some((c) => c.method === 'Page.startScreencast'));
 
     // The server streams frames over SSE and acks them to Chrome.

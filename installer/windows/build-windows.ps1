@@ -36,7 +36,11 @@ Write-Host "==> Generating the app/tray icon"
 Write-Host "==> Installing Electron + server dependencies"
 Push-Location $App
 try {
-  npm install
+  if (Test-Path (Join-Path $App 'package-lock.json')) {
+    npm ci
+  } else {
+    npm install
+  }
 } finally {
   Pop-Location
 }

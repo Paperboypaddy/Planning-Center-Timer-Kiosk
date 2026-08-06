@@ -41,8 +41,21 @@ test('normalize keeps display defaults, TV and reboot settings', () => {
   assert.equal(cfg.tv.leadMinutes, 45);
   assert.equal(cfg.reboot.cron, '30 4 * * *');
   assert.equal(normalize({ defaultTheme: 'pink' }).defaultTheme, null);
-  assert.equal(normalize({ reboot: { cron: 'garbage' } }).reboot.cron, 'garbage');
+  assert.equal(normalize({ reboot: { cron: 'garbage' } }).reboot.cron, null);
+  assert.equal(normalize({ tv: { leadMinutes: 9999 } }).tv.leadMinutes, 600);
+  assert.equal(normalize({ tv: { leadMinutes: -5 } }).tv.leadMinutes, 0);
   assert.equal(normalize({ defaultDisplayType: 42 }).defaultDisplayType, null);
+});
+
+test('normalize rejects non-PCO url templates', () => {
+  assert.equal(
+    normalize({ urlTemplate: 'https://evil.example/{serviceId}' }).urlTemplate,
+    DEFAULT_TEMPLATE
+  );
+  assert.equal(
+    normalize({ urlTemplate: 'https://services.planningcenteronline.com/live/{serviceId}' }).urlTemplate,
+    'https://services.planningcenteronline.com/live/{serviceId}'
+  );
 });
 
 test('normalize migrates the old HH:MM reboot.at into a daily cron', () => {
@@ -70,7 +83,7 @@ test('normalize keeps the prerelease update toggle', () => {
 
 test('normalize keeps well-formed services', () => {
   const cfg = normalize({
-    urlTemplate: 'https://x/{serviceId}',
+    urlTemplate: 'https://services.planningcenteronline.com/live/{serviceId}',
     activeServiceId: 'a',
     services: [
       { id: 'a', name: 'Sunday 9am', serviceId: '111', displayType: 'countdown' },

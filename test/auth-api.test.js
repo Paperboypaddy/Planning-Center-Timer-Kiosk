@@ -35,7 +35,7 @@ async function startApp(initial) {
       const res = await fetch(base + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
       const setCookie = res.headers.get('set-cookie');
       if (setCookie) cookie = setCookie.split(';')[0];
-      return { status: res.status, body: await res.json() };
+      return { status: res.status, body: await res.json(), setCookie };
     },
     close: () => {
       kiosk.stop();
@@ -141,6 +141,8 @@ test('admin password change verifies the current password and persists a new has
     r = await ctx.send('/api/panel/password', 'PUT', { currentPassword: 'oldpass123', newPassword: 'newpass123' });
     assert.equal(r.status, 200);
     assert.ok(bcrypt.compareSync('newpass123', ctx.config.admin.passwordHash));
+    // Password change issues a fresh session cookie (all prior sessions revoked).
+    assert.ok(r.setCookie && r.setCookie.includes('kiosk_session='));
   } finally {
     await ctx.close();
   }

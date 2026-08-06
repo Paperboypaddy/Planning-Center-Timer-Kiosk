@@ -17,16 +17,18 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Check version sync
+        run: node .github/scripts/check-versions.js
       - run: npm run build:panel
       - run: npm test
 
   # Build the Windows single-file Electron app + the Inno installer.
   # GitHub-hosted Windows runners are elevated, so electron-builder's
   # WinCodeSign symlink extraction works without Developer Mode.
+  # Runs on PRs too so packaging regressions are caught before merge.
   windows-build:
     runs-on: windows-latest
     needs: test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

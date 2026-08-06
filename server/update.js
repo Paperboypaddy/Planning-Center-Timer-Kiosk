@@ -63,6 +63,8 @@ function writeUpdateState(filePath, patch) {
   }
 }
 
+// Parse YYYY.M.D or semver, including optional prerelease (e.g. 2026.8.5-beta.2).
+// Stable (no prerelease) sorts above any prerelease of the same Y.M.D.
 function parseVersion(v) {
   // Keep the prerelease label (e.g. beta.2) so date-based betas compare correctly.
   const m = /v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?/.exec(String(v || '').trim());

@@ -107,6 +107,8 @@ test('services CRUD, template, select/deselect drive the kiosk tab', async () =>
     assert.equal(res.status, 400);
     res = await appCtx.send('/api/url-template', 'PUT', { urlTemplate: '' });
     assert.equal(res.status, 400);
+    res = await appCtx.send('/api/url-template', 'PUT', { urlTemplate: 'https://evil.example/{serviceId}' });
+    assert.equal(res.status, 400);
   } finally {
     await appCtx.close();
     await mock.close();

@@ -72,6 +72,17 @@ const { app } = createApp({
 
 kiosk.start();
 
+process.on('unhandledRejection', (reason) => {
+  const msg = reason && reason.message ? reason.message : String(reason);
+  console.error(`[kiosk-control] unhandledRejection: ${msg}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error(`[kiosk-control] uncaughtException: ${err && err.stack ? err.stack : err}`);
+  // Fatal: leave so systemd/supervisor can restart a clean process.
+  process.exit(1);
+});
+
 if (TLS) {
   if (!CERT_FILE || !KEY_FILE) {
     console.error('[kiosk-control] KIOSK_TLS=1 requires KIOSK_CERT and KIOSK_KEY');

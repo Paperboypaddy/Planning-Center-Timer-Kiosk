@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   clientAddress,
   createSession,
+  destroyAllSessions,
   destroySession,
   getSession,
   isLoopback,
@@ -13,6 +14,7 @@ const {
   loginRetryAfter,
   recordLoginFailure,
   requireAuth,
+  SESSION_TTL_MS,
   sessionToken,
 } = require('../server/auth');
 
@@ -62,6 +64,22 @@ test('sessions create, retrieve, and destroy', () => {
   assert.equal(getSession(token).username, 'admin');
   destroySession(token);
   assert.equal(getSession(token), null);
+});
+
+test('expired sessions are treated as missing', () => {
+  const token = createSession('admin');
+  const session = getSession(token);
+  assert.ok(session);
+  session.createdAt = Date.now() - SESSION_TTL_MS - 1000;
+  assert.equal(getSession(token), null);
+});
+
+test('destroyAllSessions clears every token', () => {
+  const a = createSession('a');
+  const b = createSession('b');
+  destroyAllSessions();
+  assert.equal(getSession(a), null);
+  assert.equal(getSession(b), null);
 });
 
 test('sessionToken parses the kiosk_session cookie', () => {

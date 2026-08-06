@@ -180,10 +180,15 @@ Add tests with new routes/features.
 - `selfsigned` v5 is **async** (`await selfsigned.generate(...)`).
 - `gen-cert.js` skips regeneration when certs exist (phones keep trusting
   them). Pass `--force` to rotate.
-- Sessions expire after 24h, wipe on password change, and die on server
-  restart (in-memory).
+- Sessions expire after 24h, wipe on password change (`destroyAllSessions`),
+  and die on server restart (in-memory).
+- Kiosk navigation is allowlisted (`server/url-allowlist.js`): PCO hosts,
+  local `/nowplaying`, and local `/display`. Remote start always opens the
+  hard-coded PCO login URL.
 - Selecting a plan re-resolves `serviceTypeId` before Live polls (stale type
   IDs return 404 from PCO).
+- CDP mutations that navigate go through `kiosk.runExclusive()` so select /
+  deselect / remote-start cannot interleave.
 - Panel build uses `emptyOutDir: false` so `public/display.*` survives Vite.
 - Version strings must match in root `package.json`, `app/package.json`, and
   `installer/windows/kiosk.iss` (`MyAppVersion`). CI enforces via
