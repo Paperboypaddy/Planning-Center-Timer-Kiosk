@@ -10,6 +10,7 @@ const path = require('path');
 
 const DEFAULT_REPO = 'Paperboypaddy/Planning-Center-Timer-Kiosk';
 const DEFAULT_API_BASE = 'https://api.github.com';
+const DEFAULT_UPDATE_SCRIPT = '/opt/kiosk/kiosk/update.sh';
 
 const IDLE_UPDATE_STATE = {
   state: 'idle',
@@ -18,6 +19,21 @@ const IDLE_UPDATE_STATE = {
   version: null,
   updatedAt: null,
 };
+
+// Linux Debian/Ubuntu install uses update.sh; NixOS (and other immutable
+// installs) set KIOSK_UPDATE_SCRIPT to empty to disable in-panel apply.
+function updateScriptPath(env = process.env, platform = process.platform) {
+  if (platform !== 'linux') return null;
+  if (Object.prototype.hasOwnProperty.call(env, 'KIOSK_UPDATE_SCRIPT')) {
+    return env.KIOSK_UPDATE_SCRIPT || null;
+  }
+  return DEFAULT_UPDATE_SCRIPT;
+}
+
+function canApplyUpdate(env = process.env, platform = process.platform) {
+  const script = updateScriptPath(env, platform);
+  return !!(script && fs.existsSync(script));
+}
 
 // The update script (kiosk/update.sh) and the control server both write/read a
 // small JSON state file so the panel can show live progress. The file lives
@@ -113,11 +129,13 @@ function releasesUrl(repo = process.env.KIOSK_UPDATE_REPO || DEFAULT_REPO) {
 
 module.exports = {
   IDLE_UPDATE_STATE,
+  canApplyUpdate,
   compareVersions,
   getUpdateInfo,
   parseVersion,
   readUpdateState,
   releasesUrl,
+  updateScriptPath,
   updateStatePath,
   writeUpdateState,
 };
