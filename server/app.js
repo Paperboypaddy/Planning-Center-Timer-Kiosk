@@ -672,11 +672,12 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     };
   }
 
+  // keyCode matches what KioskDriver.key() forwards as windowsVirtualKeyCode.
   const KEYMAP = {
-    Enter: { key: 'Enter', code: 'Enter', text: '\r', vk: 13 },
-    Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
-    Tab: { key: 'Tab', code: 'Tab', vk: 9 },
-    Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+    Enter: { key: 'Enter', code: 'Enter', text: '\r', keyCode: 13 },
+    Backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
+    Tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
+    Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
   };
 
   app.post('/api/remote/start', async (req, res) => {
@@ -728,11 +729,12 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
         await kiosk.insertText(body.text);
       } else if (body.type === 'key' && KEYMAP[body.key]) {
         const spec = KEYMAP[body.key];
-        await kiosk.key({ type: 'rawKeyDown', ...spec });
+        // Only the char event carries `text`; down/up get key identity + keyCode.
+        await kiosk.key({ type: 'rawKeyDown', key: spec.key, code: spec.code, keyCode: spec.keyCode });
         if (spec.text !== undefined) {
-          await kiosk.key({ type: 'char', key: spec.key, code: spec.code, text: spec.text, keyCode: spec.vk });
+          await kiosk.key({ type: 'char', key: spec.key, code: spec.code, text: spec.text, keyCode: spec.keyCode });
         }
-        await kiosk.key({ type: 'keyUp', ...spec });
+        await kiosk.key({ type: 'keyUp', key: spec.key, code: spec.code, keyCode: spec.keyCode });
       } else {
         return res.status(400).json({ error: 'unsupported input' });
       }

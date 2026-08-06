@@ -42,6 +42,12 @@ test('compareVersions orders semver and date-based versions', () => {
   assert.equal(compareVersions('2026.8.4', '2026.8.4'), 0);
   assert.equal(compareVersions('2026.8.4', '0.1.0'), 1);
   assert.equal(compareVersions('2026.8.5-beta', '2026.8.4'), 1);
+  // Prerelease labels must participate in ordering (beta.2 > beta.1; stable > beta).
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5-beta.1'), 1);
+  assert.equal(compareVersions('2026.8.5-beta.1', '2026.8.5-beta.2'), -1);
+  assert.equal(compareVersions('2026.8.5', '2026.8.5-beta.2'), 1);
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5'), -1);
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5-beta.2'), 0);
 });
 
 test('getUpdateInfo uses the stable release by default', async () => {
@@ -75,6 +81,22 @@ test('getUpdateInfo with includePrereleases picks the newest beta', async () => 
     assert.equal(info.updateAvailable, true);
     assert.equal(info.latestVersion, '2026.8.5-beta');
     assert.equal(info.prerelease, true);
+  } finally {
+    mock.server.close();
+  }
+});
+
+test('getUpdateInfo with includePrereleases offers a newer beta of the same date', async () => {
+  const mock = await startMockRelease(() => ({ body: [REL('2026.8.5-beta.2', true), REL('2026.8.4')] }));
+  try {
+    const info = await getUpdateInfo({
+      repo: 'x/repo',
+      version: '2026.8.5-beta.1',
+      includePrereleases: true,
+      baseUrl: mock.base,
+    });
+    assert.equal(info.updateAvailable, true);
+    assert.equal(info.latestVersion, '2026.8.5-beta.2');
   } finally {
     mock.server.close();
   }
