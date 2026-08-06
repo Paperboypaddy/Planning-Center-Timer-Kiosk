@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 
 const { saveConfig } = require('./config');
 const { buildUrl } = require('./url');
+const { isAllowedUrlTemplate, PCO_LOGIN_URL } = require('./url-allowlist');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
@@ -21,6 +22,7 @@ const {
   clearLoginFailures,
   clientAddress,
   createSession,
+  destroyAllSessions,
   destroySession,
   getSession,
   hashPassword,
@@ -40,6 +42,15 @@ const cecModule = require('./cec');
 const wifiModule = require('./wifi');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+// Express 4 does not forward rejected promises from async route handlers to
+// the error middleware. Wrap handlers so a thrown/rejected error becomes a
+// next(err) instead of an unhandledRejection that can take down the process.
+function asyncHandler(fn) {
+  return function wrapped(req, res, next) {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
 
 function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, wifi = wifiModule, runScheduler = false, rebootFn = null, version = require('../package.json').version }) {
   kiosk.idleUrl = idleUrl || `http://127.0.0.1:3001/nowplaying`;
@@ -123,8 +134,12 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   const app = express();
   app.set('trust proxy', 1); // trust the TLS-terminating proxy (Caddy) for Secure cookies
-  app.use(express.json());
+  app.use(express.json({ limit: '64kb' }));
   app.use(express.static(PUBLIC_DIR));
+
+  // Serialize first-run admin setup so two concurrent clients cannot both pass
+  // the adminConfigured() check before either persists.
+  let setupInFlight = null;
 
   // --- Authentication (cookie sessions; first-run admin setup) ---
   app.get('/api/auth/status', (req, res) => {
@@ -133,7 +148,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   });
 
   // First-run only: create the admin account.
-  app.post('/api/auth/setup', async (req, res) => {
+  app.post('/api/auth/setup', asyncHandler(async (req, res) => {
     const ip = clientAddress(req);
     if (!isLoopback(ip) && loginLockedOut(ip)) {
       return res
@@ -142,19 +157,35 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
         .json({ error: 'too many attempts; try again shortly' });
     }
     if (adminConfigured()) return res.status(400).json({ error: 'an admin account already exists' });
+    if (setupInFlight) {
+      await setupInFlight.catch(() => {});
+      if (adminConfigured()) return res.status(400).json({ error: 'an admin account already exists' });
+    }
     const body = req.body || {};
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
     if (!username) return res.status(400).json({ error: 'username is required' });
     if (password.length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
-    config.admin = { username, passwordHash: await hashPassword(password) };
-    if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+
+    setupInFlight = (async () => {
+      if (adminConfigured()) throw Object.assign(new Error('an admin account already exists'), { status: 400 });
+      config.admin = { username, passwordHash: await hashPassword(password) };
+      if (!persist()) throw Object.assign(new Error('failed to save config'), { status: 500 });
+    })();
+    try {
+      await setupInFlight;
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      throw err;
+    } finally {
+      setupInFlight = null;
+    }
     clearLoginFailures(ip);
     setSessionCookie(res, createSession(username), requestIsSecure(req));
     res.json({ ok: true, authenticated: true, setupRequired: false });
-  });
+  }));
 
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', asyncHandler(async (req, res) => {
     const ip = clientAddress(req);
     if (!isLoopback(ip) && loginLockedOut(ip)) {
       return res
@@ -173,7 +204,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     clearLoginFailures(ip);
     setSessionCookie(res, createSession(username), requestIsSecure(req));
     res.json({ ok: true });
-  });
+  }));
 
   app.post('/api/auth/logout', (req, res) => {
     destroySession(sessionToken(req));
@@ -205,6 +236,9 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   app.put('/api/url-template', (req, res) => {
     const urlTemplate = typeof (req.body || {}).urlTemplate === 'string' ? req.body.urlTemplate.trim() : '';
     if (!urlTemplate) return res.status(400).json({ error: 'urlTemplate is required' });
+    if (!isAllowedUrlTemplate(urlTemplate, { idleUrl: kiosk.idleUrl })) {
+      return res.status(400).json({ error: 'urlTemplate must be an https Planning Center Services URL' });
+    }
     config.urlTemplate = urlTemplate;
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({ urlTemplate: config.urlTemplate });
@@ -216,6 +250,9 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     if (body.urlTemplate !== undefined) {
       const urlTemplate = typeof body.urlTemplate === 'string' ? body.urlTemplate.trim() : '';
       if (!urlTemplate) return res.status(400).json({ error: 'urlTemplate cannot be empty' });
+      if (!isAllowedUrlTemplate(urlTemplate, { idleUrl: kiosk.idleUrl })) {
+        return res.status(400).json({ error: 'urlTemplate must be an https Planning Center Services URL' });
+      }
       config.urlTemplate = urlTemplate;
     }
     if (body.defaultDisplayType !== undefined) {
@@ -278,7 +315,8 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   // Change the admin password. Requires the current password, so a change is
   // possible from the panel itself (the panel is behind the session login).
-  app.put('/api/panel/password', async (req, res) => {
+  // All sessions are revoked so other devices must re-authenticate.
+  app.put('/api/panel/password', asyncHandler(async (req, res) => {
     const body = req.body || {};
     const current = typeof body.currentPassword === 'string' ? body.currentPassword : '';
     const next = typeof body.newPassword === 'string' ? body.newPassword : '';
@@ -291,27 +329,33 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     }
     config.admin.passwordHash = await hashPassword(next);
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    destroyAllSessions();
+    setSessionCookie(res, createSession(config.admin.username), requestIsSecure(req));
     res.json({ ok: true });
-  });
+  }));
 
   // --- Software update ---
 
-  app.get('/api/update/status', async (req, res) => {
+  app.get('/api/update/status', asyncHandler(async (req, res) => {
     try {
       res.json(await getUpdateInfo({ version, includePrereleases: config.update.includePrereleases, signal: req.signal }));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
   // Apply the update. Linux auto-reinstalls from the latest release (a script
   // invoked via a narrow sudoers entry); other platforms show the download.
   // Progress is tracked in a state file the panel polls via
   // GET /api/update/progress.
-  app.post('/api/update', async (req, res) => {
+  app.post('/api/update', asyncHandler(async (req, res) => {
     if (process.platform === 'linux') {
-      const script = process.env.KIOSK_UPDATE_SCRIPT || '/opt/kiosk/kiosk/update.sh';
       const stateFile = updateStatePath(configPath);
+      const current = readUpdateState(stateFile);
+      if (current.state === 'starting' || current.state === 'running') {
+        return res.status(409).json({ error: 'an update is already in progress', state: current.state });
+      }
+      const script = process.env.KIOSK_UPDATE_SCRIPT || '/opt/kiosk/kiosk/update.sh';
       writeUpdateState(stateFile, { state: 'starting', progress: 0, message: 'Starting update\u2026' });
       // Resolve the exact release the panel offered (honoring the prerelease
       // toggle) and pass it to the updater, so clicking "install 2026.8.5-beta"
@@ -330,11 +374,13 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       child.on('error', (err) => {
         writeUpdateState(stateFile, { state: 'error', progress: 0, message: `could not start the update: ${err.message}` });
         logger.error(`[update] could not start update: ${err.message}`);
-        res.status(502).json({ error: `could not start the update: ${err.message}`, hint: `run manually: sudo ${script}` });
+        if (!res.headersSent) {
+          res.status(502).json({ error: `could not start the update: ${err.message}`, hint: `run manually: sudo ${script}` });
+        }
       });
       child.on('spawn', () => {
         logger.log(`[update] update script started: ${script}`);
-        res.json({ ok: true, message: 'update started' });
+        if (!res.headersSent) res.json({ ok: true, message: 'update started' });
       });
     } else {
       res.json({
@@ -343,11 +389,11 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
         releaseUrl: releasesUrl(),
       });
     }
-  });
+  }));
 
   // --- TV (HDMI-CEC) power control ---
 
-  app.get('/api/tv/status', async (req, res) => {
+  app.get('/api/tv/status', asyncHandler(async (req, res) => {
     const available = cec.isAvailable();
     const status = { available };
     if (available) {
@@ -356,39 +402,41 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       status.error = p.error || null;
     }
     res.json(status);
-  });
+  }));
 
-  app.post('/api/tv/on', async (req, res) => {
+  app.post('/api/tv/on', asyncHandler(async (req, res) => {
     const r = await cec.powerOn();
     if (!r.ok) return res.status(502).json({ error: r.error || 'CEC command failed' });
     res.json({ ok: true });
-  });
+  }));
 
-  app.post('/api/tv/off', async (req, res) => {
+  app.post('/api/tv/off', asyncHandler(async (req, res) => {
     const r = await cec.powerOff();
     if (!r.ok) return res.status(502).json({ error: r.error || 'CEC command failed' });
     res.json({ ok: true });
-  });
+  }));
 
   // Apply the saved defaults to the kiosk's current live page (no selection
   // needed). Best-effort per setting.
-  app.post('/api/kiosk/settings/apply', async (req, res) => {
+  app.post('/api/kiosk/settings/apply', asyncHandler(async (req, res) => {
     const applied = { displayType: null, theme: null };
     try {
-      if (config.defaultDisplayType) {
-        await kiosk.setDisplayType(config.defaultDisplayType);
-        applied.displayType = config.defaultDisplayType;
-      }
-      if (config.defaultTheme) {
-        await kiosk.setTheme(config.defaultTheme);
-        applied.theme = config.defaultTheme;
-      }
+      await kiosk.runExclusive(async () => {
+        if (config.defaultDisplayType) {
+          await kiosk.setDisplayType(config.defaultDisplayType);
+          applied.displayType = config.defaultDisplayType;
+        }
+        if (config.defaultTheme) {
+          await kiosk.setTheme(config.defaultTheme);
+          applied.theme = config.defaultTheme;
+        }
+      });
       res.json({ ok: true, applied });
     } catch (err) {
       logger.error(`[kiosk] apply settings failed: ${err.message}`);
       res.status(502).json({ error: err.message, applied });
     }
-  });
+  }));
 
   app.post('/api/services', (req, res) => {
     const body = req.body || {};
@@ -453,7 +501,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   // Select a service: record it as active and navigate the kiosk tab there.
   // If the kiosk is unreachable we still record the selection so that the
   // next connection self-heals, and report 502 so the UI can warn.
-  app.post('/api/select', async (req, res) => {
+  app.post('/api/select', asyncHandler(async (req, res) => {
     const service = findService((req.body || {}).id);
     if (!service) return res.status(404).json({ error: 'service not found' });
     const url = buildUrl(config.urlTemplate, service);
@@ -463,41 +511,61 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     const needsDesktop = applyDisplayType || applyTheme;
 
     try {
-      // The layout/theme controls only render at a desktop viewport. Emulate
-      // one BEFORE navigating so the TV never shows the emulated (zoomed)
-      // view — it lands inside the loading screen instead.
-      if (needsDesktop) await kiosk.setDeviceMetrics(1920, 1080);
-      const result = await kiosk.navigate(url);
-      if (needsDesktop && result.skipped) {
-        // The tab was already on this URL (loaded at its native viewport, so
-        // no controller controls). Reload it so it re-renders at the desktop
-        // viewport we just emulated.
-        await kiosk.reload();
-      }
-      config.activeServiceId = service.id;
-      if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+      const result = await kiosk.runExclusive(async () => {
+        // The layout/theme controls only render at a desktop viewport. Emulate
+        // one BEFORE navigating so the TV never shows the emulated (zoomed)
+        // view — it lands inside the loading screen instead.
+        if (needsDesktop) await kiosk.setDeviceMetrics(1920, 1080);
+        try {
+          const nav = await kiosk.navigate(url);
+          if (needsDesktop && nav.skipped) {
+            // The tab was already on this URL (loaded at its native viewport, so
+            // no controller controls). Reload it so it re-renders at the desktop
+            // viewport we just emulated.
+            await kiosk.reload();
+          }
+          config.activeServiceId = service.id;
+          if (!persist()) {
+            const err = new Error('failed to save config');
+            err.status = 500;
+            throw err;
+          }
 
-      // Apply the display type (per-service override, else the saved default)
-      // and the default theme. Best-effort — never blocks the selection.
-      let displayType = null;
-      if (applyDisplayType) {
-        try {
-          await kiosk.setDisplayType(displayTypeValue, { emulate: false, restoreViewport: false });
-          displayType = { value: displayTypeValue, applied: true, source: service.displayType ? 'service' : 'default' };
-        } catch (err) {
-          logger.warn(`[kiosk] display type "${displayTypeValue}" not applied: ${err.message}`);
-          displayType = { value: displayTypeValue, applied: false, error: err.message };
+          // Apply the display type (per-service override, else the saved default)
+          // and the default theme. Best-effort — never blocks the selection.
+          let displayType = null;
+          if (applyDisplayType) {
+            try {
+              await kiosk.setDisplayType(displayTypeValue, { emulate: false, restoreViewport: false });
+              displayType = { value: displayTypeValue, applied: true, source: service.displayType ? 'service' : 'default' };
+            } catch (err) {
+              logger.warn(`[kiosk] display type "${displayTypeValue}" not applied: ${err.message}`);
+              displayType = { value: displayTypeValue, applied: false, error: err.message };
+            }
+          }
+          if (applyTheme) {
+            try {
+              await kiosk.setTheme(config.defaultTheme, { emulate: false, restoreViewport: false });
+            } catch (err) {
+              logger.warn(`[kiosk] theme "${config.defaultTheme}" not applied: ${err.message}`);
+            }
+          }
+          return { nav, displayType };
+        } finally {
+          if (needsDesktop) {
+            try { await kiosk.clearDeviceMetrics(); } catch { /* kiosk may be down */ }
+          }
         }
-      }
-      if (applyTheme) {
-        try {
-          await kiosk.setTheme(config.defaultTheme, { emulate: false, restoreViewport: false });
-        } catch (err) {
-          logger.warn(`[kiosk] theme "${config.defaultTheme}" not applied: ${err.message}`);
-        }
-      }
-      res.json({ ok: true, url, activeServiceId: service.id, skipped: result.skipped, displayType });
+      });
+      res.json({
+        ok: true,
+        url,
+        activeServiceId: service.id,
+        skipped: result.nav.skipped,
+        displayType: result.displayType,
+      });
     } catch (err) {
+      if (err.status === 500) return res.status(500).json({ error: err.message });
       config.activeServiceId = service.id;
       persist();
       res.status(502).json({
@@ -506,37 +574,33 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
         url,
         activeServiceId: service.id,
       });
-    } finally {
-      if (needsDesktop) {
-        try { await kiosk.clearDeviceMetrics(); } catch { /* kiosk may be down */ }
-      }
     }
-  });
+  }));
 
   // Set the kiosk's current live page display type directly (used by the
   // panel's remote-control section to experiment without editing a service).
-  app.post('/api/kiosk/display-type', async (req, res) => {
+  app.post('/api/kiosk/display-type', asyncHandler(async (req, res) => {
     const value = (req.body || {}).value;
     if (!value) return res.status(400).json({ error: 'value is required' });
     try {
-      await kiosk.setDisplayType(value);
+      await kiosk.runExclusive(() => kiosk.setDisplayType(value));
       res.json({ ok: true, value });
     } catch (err) {
       logger.error(`[kiosk] set display type failed: ${err.message}`);
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
-  app.post('/api/deselect', async (req, res) => {
+  app.post('/api/deselect', asyncHandler(async (req, res) => {
     try {
-      await kiosk.navigate(kiosk.idleUrl);
+      await kiosk.runExclusive(() => kiosk.navigate(kiosk.idleUrl));
     } catch (err) {
       logger.warn(`[kiosk] deselect navigate failed: ${err.message}`);
     }
     config.activeServiceId = null;
     persist();
     res.json({ ok: true, activeServiceId: null });
-  });
+  }));
 
   // --- Optional Planning Center API integration (read-only) ---
 
@@ -553,7 +617,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     res.json({ configured: !!pcoApiKey(), viaEnv: !!process.env.KIOSK_PCO_API_KEY });
   });
 
-  app.get('/api/pco/plans', async (req, res) => {
+  app.get('/api/pco/plans', asyncHandler(async (req, res) => {
     const apiKey = pcoApiKey();
     if (!apiKey) return res.status(400).json({ error: 'no Planning Center API key configured' });
     try {
@@ -568,10 +632,10 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     } catch (err) {
       handlePcoError(err, res);
     }
-  });
+  }));
 
   // Add selected plans to the service list (dedupes by PCO plan id).
-  app.post('/api/pco/import', async (req, res) => {
+  app.post('/api/pco/import', asyncHandler(async (req, res) => {
     const apiKey = pcoApiKey();
     if (!apiKey) return res.status(400).json({ error: 'no Planning Center API key configured' });
     const planIds = Array.isArray((req.body || {}).planIds) ? (req.body.planIds || []).map(String) : [];
@@ -607,23 +671,23 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     } catch (err) {
       handlePcoError(err, res);
     }
-  });
+  }));
 
   // --- Wi-Fi (supported SBCs only, e.g. Raspberry Pi with NetworkManager) ---
   // The panel only shows this section when wifi.isAvailable() is true, so
   // Windows/macOS and unsupported boards never see it. Passwords go straight
   // to NetworkManager; they are never stored in config.json or logged.
 
-  app.get('/api/wifi/status', async (req, res) => {
+  app.get('/api/wifi/status', asyncHandler(async (req, res) => {
     try {
       res.json(await wifi.status({ signal: req.signal }));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
   // Rescans (a few seconds on an SBC) and returns nearby networks.
-  app.get('/api/wifi/networks', async (req, res) => {
+  app.get('/api/wifi/networks', asyncHandler(async (req, res) => {
     try {
       const r = await wifi.listNetworks({ signal: req.signal });
       if (!r.ok) return res.status(502).json({ error: r.error || 'wifi scan failed' });
@@ -631,9 +695,9 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
-  app.post('/api/wifi/connect', async (req, res) => {
+  app.post('/api/wifi/connect', asyncHandler(async (req, res) => {
     try {
       const body = req.body || {};
       const ssid = typeof body.ssid === 'string' ? body.ssid.trim() : '';
@@ -644,7 +708,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
   // --- Remote control of the kiosk tab (screencast + input forwarding) ---
   // Used for the one-time PCO login from a phone: the panel streams the kiosk
@@ -672,42 +736,44 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     };
   }
 
+  // keyCode matches what KioskDriver.key() forwards as windowsVirtualKeyCode.
   const KEYMAP = {
-    Enter: { key: 'Enter', code: 'Enter', text: '\r', vk: 13 },
-    Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
-    Tab: { key: 'Tab', code: 'Tab', vk: 9 },
-    Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+    Enter: { key: 'Enter', code: 'Enter', text: '\r', keyCode: 13 },
+    Backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
+    Tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
+    Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
   };
 
-  app.post('/api/remote/start', async (req, res) => {
-    const url = (req.body || {}).url;
+  app.post('/api/remote/start', asyncHandler(async (req, res) => {
+    // Always navigate to the hard-coded PCO login URL — never trust a client-
+    // supplied URL (open navigation / SSRF-style kiosk takeover).
     try {
-      if (url) {
-        await kiosk.navigate(url);
+      await kiosk.runExclusive(async () => {
+        await kiosk.navigate(PCO_LOGIN_URL);
         // Let the renderer finish navigating/loading before asking Chrome for
         // a screencast, otherwise Page.startScreencast fails with
         // "Not attached to an active page".
         await kiosk.waitForPageLoad();
-      }
-      await kiosk.startScreencast();
+        await kiosk.startScreencast();
+      });
       remoteActive = true;
       res.json({ ok: true });
     } catch (err) {
       logger.error(`[remote] start failed: ${err.message}`);
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
-  app.post('/api/remote/stop', async (req, res) => {
+  app.post('/api/remote/stop', asyncHandler(async (req, res) => {
     remoteActive = false;
     await kiosk.stopScreencast();
     lastFrameMeta = null;
     for (const client of sseClients) client.end();
     sseClients.clear();
     res.json({ ok: true });
-  });
+  }));
 
-  app.post('/api/remote/input', async (req, res) => {
+  app.post('/api/remote/input', asyncHandler(async (req, res) => {
     const body = req.body || {};
     try {
       if (body.type === 'mouse') {
@@ -728,11 +794,12 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
         await kiosk.insertText(body.text);
       } else if (body.type === 'key' && KEYMAP[body.key]) {
         const spec = KEYMAP[body.key];
-        await kiosk.key({ type: 'rawKeyDown', ...spec });
+        // Only the char event carries `text`; down/up get key identity + keyCode.
+        await kiosk.key({ type: 'rawKeyDown', key: spec.key, code: spec.code, keyCode: spec.keyCode });
         if (spec.text !== undefined) {
-          await kiosk.key({ type: 'char', key: spec.key, code: spec.code, text: spec.text, keyCode: spec.vk });
+          await kiosk.key({ type: 'char', key: spec.key, code: spec.code, text: spec.text, keyCode: spec.keyCode });
         }
-        await kiosk.key({ type: 'keyUp', ...spec });
+        await kiosk.key({ type: 'keyUp', key: spec.key, code: spec.code, keyCode: spec.keyCode });
       } else {
         return res.status(400).json({ error: 'unsupported input' });
       }
@@ -741,7 +808,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       logger.error(`[remote] input failed: ${err.message}`);
       res.status(502).json({ error: err.message });
     }
-  });
+  }));
 
   // Server-Sent Events stream of screencast frames (one-way; inputs go over
   // POST /api/remote/input).
@@ -773,6 +840,13 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     });
     scheduler.start();
   }
+
+  // Final error middleware for asyncHandler / unexpected throws.
+  app.use((err, req, res, _next) => {
+    logger.error(`[http] ${req.method} ${req.path}: ${err && err.message ? err.message : err}`);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'internal server error' });
+  });
 
   return { app, kiosk, config, scheduler };
 }

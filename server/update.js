@@ -47,10 +47,42 @@ function writeUpdateState(filePath, patch) {
   }
 }
 
+// Parse YYYY.M.D or semver, including optional prerelease (e.g. 2026.8.5-beta.2).
+// Stable (no prerelease) sorts above any prerelease of the same Y.M.D.
 function parseVersion(v) {
-  const m = /v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?/.exec(String(v || '').trim());
+  const m = /v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(String(v || '').trim());
   if (!m) return null;
-  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
+  const prerelease = m[4]
+    ? m[4].split('.').map((part) => (/^\d+$/.test(part) ? Number(part) : part))
+    : null;
+  return {
+    major: Number(m[1]),
+    minor: Number(m[2]),
+    patch: Number(m[3]),
+    prerelease,
+  };
+}
+
+function comparePrerelease(a, b) {
+  // null (stable) > any prerelease
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    const x = a[i];
+    const y = b[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    if (x === y) continue;
+    const xn = typeof x === 'number';
+    const yn = typeof y === 'number';
+    if (xn && yn) return x < y ? -1 : 1;
+    if (xn) return -1; // numeric identifiers have lower precedence than non-numeric
+    if (yn) return 1;
+    return String(x) < String(y) ? -1 : 1;
+  }
+  return 0;
 }
 
 // -1 if a < b, 0 if equal/unparseable, 1 if a > b.
@@ -61,7 +93,7 @@ function compareVersions(a, b) {
   for (const key of ['major', 'minor', 'patch']) {
     if (pa[key] !== pb[key]) return pa[key] < pb[key] ? -1 : 1;
   }
-  return 0;
+  return comparePrerelease(pa.prerelease, pb.prerelease);
 }
 
 // Fetch the latest release from GitHub and compare with the running version.

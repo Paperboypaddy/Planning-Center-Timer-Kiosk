@@ -3,8 +3,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { CronExpressionParser } = require('cron-parser');
+const { isAllowedUrlTemplate } = require('./url-allowlist');
 
 const DEFAULT_TEMPLATE = 'https://services.planningcenteronline.com/live/{serviceId}';
+const LEAD_MINUTES_MAX = 600;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -43,7 +46,8 @@ function normalize(data) {
   if (!data || typeof data !== 'object') return cfg;
 
   if (typeof data.urlTemplate === 'string' && data.urlTemplate.trim()) {
-    cfg.urlTemplate = data.urlTemplate.trim();
+    const tpl = data.urlTemplate.trim();
+    if (isAllowedUrlTemplate(tpl)) cfg.urlTemplate = tpl;
   }
 
   if (Array.isArray(data.services)) {
@@ -64,15 +68,27 @@ function normalize(data) {
   cfg.defaultDisplayType = (typeof data.defaultDisplayType === 'string' && data.defaultDisplayType) || null;
   cfg.defaultTheme = data.defaultTheme === 'light' || data.defaultTheme === 'dark' ? data.defaultTheme : null;
 
+  let leadMinutes = 30;
+  if (data.tv && typeof data.tv.leadMinutes === 'number' && Number.isFinite(data.tv.leadMinutes)) {
+    leadMinutes = Math.min(LEAD_MINUTES_MAX, Math.max(0, Math.floor(data.tv.leadMinutes)));
+  }
   cfg.tv = {
     autoOn: !!(data.tv && data.tv.autoOn),
-    leadMinutes:
-      data.tv && typeof data.tv.leadMinutes === 'number' && data.tv.leadMinutes >= 0 ? data.tv.leadMinutes : 30,
+    leadMinutes,
   };
   // Reboot cron. Backwards-compatible with the old "HH:MM" daily `at` field.
-  let rebootCron = data.reboot && typeof data.reboot.cron === 'string' ? data.reboot.cron : null;
+  let rebootCron = data.reboot && typeof data.reboot.cron === 'string' ? data.reboot.cron.trim() : null;
   if (!rebootCron && data.reboot && typeof data.reboot.at === 'string' && /^\d{2}:\d{2}$/.test(data.reboot.at)) {
     rebootCron = `${Number(data.reboot.at.slice(3))} ${Number(data.reboot.at.slice(0, 2))} * * *`;
+  }
+  if (rebootCron) {
+    try {
+      CronExpressionParser.parse(rebootCron);
+    } catch {
+      rebootCron = null;
+    }
+  } else {
+    rebootCron = null;
   }
   cfg.reboot = { cron: rebootCron };
   cfg.admin = {
@@ -113,4 +129,4 @@ function saveConfig(filePath, config) {
   fs.renameSync(tmp, filePath);
 }
 
-module.exports = { DEFAULT_TEMPLATE, defaults, loadConfig, saveConfig, normalize };
+module.exports = { DEFAULT_TEMPLATE, LEAD_MINUTES_MAX, defaults, loadConfig, saveConfig, normalize };

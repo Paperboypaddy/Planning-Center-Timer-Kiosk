@@ -42,6 +42,11 @@ test('compareVersions orders semver and date-based versions', () => {
   assert.equal(compareVersions('2026.8.4', '2026.8.4'), 0);
   assert.equal(compareVersions('2026.8.4', '0.1.0'), 1);
   assert.equal(compareVersions('2026.8.5-beta', '2026.8.4'), 1);
+  assert.equal(compareVersions('2026.8.5-beta.1', '2026.8.5-beta.2'), -1);
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5-beta.1'), 1);
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5'), -1);
+  assert.equal(compareVersions('2026.8.5', '2026.8.5-beta.2'), 1);
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5-beta.2'), 0);
 });
 
 test('getUpdateInfo uses the stable release by default', async () => {

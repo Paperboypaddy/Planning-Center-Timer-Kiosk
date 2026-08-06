@@ -6,7 +6,7 @@
   "private": true,
   "license": "AGPL-3.0",
   "dependencies": {
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.3",
     "chrome-remote-interface": "^0.33.0",
     "cron-parser": "^5.7.0",
     "express": "^4.21.2",
