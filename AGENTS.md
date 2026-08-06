@@ -1,123 +1,126 @@
-# AGENTS.md — developer guide for the Planning Center Kiosk
+# AGENTS.md
 
-This file helps agents (and humans) who are new to the repo understand the
-system, the conventions, and the sharp edges before they change things.
+Developer guide for humans and coding agents working in this repo. Read this
+before changing behavior.
+
+This tree is the **API-driven countdown** flavor: the TV shows a local
+`/display` page fed by the Planning Center Services Live API. The operator
+runs LIVE from their phone; the kiosk browser only views.
+
+---
 
 ## What this is
 
-A kiosk that drives the **Planning Center Services live/countdown page** on a
-wall TV. A control panel (reachable from a phone/laptop on the same network)
-lets an operator pick which service is showing. The TV tab is **navigated
-directly via the Chrome DevTools Protocol (CDP)** — it is NOT an iframe, because
-Planning Center sends `X-Frame-Options`/CSP that would block embedding.
+A wall-TV countdown kiosk for Planning Center Services. Operators pick the
+active plan from a control panel on the same network. The TV browser is driven
+via the **Chrome DevTools Protocol (CDP)** to a local display page.
 
-Supported platforms: **Debian/Ubuntu Linux** (Raspberry Pi, Orange Pi Zero 3,
-x86 Mini PCs), **NixOS** (declarative flake module + Cage/Wayland), **Windows**
-(a single-file Electron app), and **macOS** (launchd). The core is Node + any
-Chromium-based browser over CDP, so it is platform-agnostic; only the packaging
-differs. See `docs/PLATFORMS.md`.
+| Platform | Packaging |
+| --- | --- |
+| Debian/Ubuntu Linux | systemd + lightdm + Caddy |
+| NixOS | Flake module + Cage/Wayland |
+| Windows | Single-file Electron app |
+| macOS | launchd |
+
+Core is Node + any Chromium-based browser over CDP. See
+[docs/PLATFORMS.md](docs/PLATFORMS.md).
+
+---
 
 ## Architecture
 
-```
-Phone/laptop ──HTTPS + login──► Caddy (TLS only) ──► Control server ──CDP──► Kiosk browser
-                               (Linux/macOS)         (Node/Express)          (the TV tab)
-                                 or in-server TLS   ──panel + API──          (persistent profile)
-                                 (Windows Electron)  + scheduler
+```mermaid
+flowchart LR
+  Client["Phone / laptop"]
+  TLS["Caddy TLS<br/>or Electron HTTPS"]
+  Server["Control server<br/>Express + Live poller"]
+  TV["Kiosk browser<br/>persistent profile"]
+
+  Client -->|"HTTPS + login"| TLS
+  TLS --> Server
+  Server -->|"CDP → /display"| TV
+  Server -->|"Services Live API"| PCO["Planning Center"]
 ```
 
-- `server/` — the control server (Express). Cross-platform; the heart of the app.
-- `public/` — the control-panel web UI (vanilla JS, no framework, no build step).
-- `kiosk/` — launchers, installers, and helpers:
-  - `launch-kiosk.js` — cross-platform Chromium/Edge launcher (modes: window /
-    `--kiosk` / `--login`; X-only bits only on Linux). `launch-kiosk.sh` is a
-    thin bash wrapper that `exec`s it.
-  - `run.js` — cross-platform supervisor (server + Caddy + browser); used by
-    the Windows/macOS "launch everything" entry. Not used by Linux (systemd).
-  - `gen-cert.js` — self-signed cert generator (`selfsigned` package, async).
-  - `setup.js` — writes a TLS-only Caddy config (macOS installer).
-  - `install.sh` (Linux), `install-macos.sh`, and `installer/windows/`
-    (Inno Setup + electron-builder) — per-platform packaging.
-  - `lightdm/` — the Raspberry Pi OS Lite headless autologin kiosk session.
-- `app/` — the Windows **single-file Electron app** (`main.js` runs the control
-  server in-process, owns the kiosk window, and hosts the system-tray icon with
-  Start / Stop / Open panel / Quit).
-- `.github/workflows/ci.yml` — GitHub Actions: tests (ubuntu), Nix flake check
-  (`x86_64-linux` + `aarch64-linux`), the Windows build (portable exe + Inno
-  installer, uploaded as artifacts), and a source tarball.
-  `.github/workflows/release.yml` runs when a release is *published* (never on
-  a push): flake-check gates the release, then attaches the Windows artifacts +
-  source tarball. NixOS installs pin the git tag as a flake input (no separate
-  Nix binary on the release).
+| Path | Role |
+| --- | --- |
+| `server/` | Express control server — heart of the app |
+| `panel/` | Control-panel source (Vite + React + TypeScript); builds into `public/` |
+| `public/` | Built panel assets plus the TV pages (`display.*`, idle) |
+| `kiosk/` | Launchers, installers, helpers |
+| `app/` | Windows Electron shell (`main.js`: server in-process + tray + kiosk window) |
+| `.github/workflows/` | `ci.yml` (test, Nix check, Windows build, tarball); `release.yml` on *published* releases |
+
+### `kiosk/` helpers
+
+| File | Purpose |
+| --- | --- |
+| `launch-kiosk.js` | Cross-platform Chromium/Edge launcher (`window` / `--kiosk` / `--login`) |
+| `launch-kiosk.sh` | Thin bash wrapper that `exec`s the JS launcher |
+| `run.js` | Supervisor (server + Caddy + browser) for Windows/macOS — Linux uses systemd |
+| `gen-cert.js` | Self-signed cert (`selfsigned` is **async**); skips if certs exist unless `--force` |
+| `setup.js` | TLS-only Caddy config (macOS) |
+| `install.sh` / `install-macos.sh` / `installer/windows/` | Per-platform packaging |
+| `lightdm/` | Raspberry Pi OS Lite headless autologin session |
+
+---
 
 ## Key concepts
 
-- **CDP driving**: `server/kiosk.js` (`KioskDriver`) connects to the kiosk tab
-  via `chrome-remote-interface`, reconnects on crash, and has a same-URL guard
-  on `navigate()`. The display-type/theme setters briefly emulate a desktop
-  viewport (the PCO live-controller DOM only renders there), click the option,
-  then restore it. The black-loading background is injected into every new
-  document via `Page.addScriptToEvaluateOnNewDocument` (`--blink-settings` and
-  `--force-dark-mode` cover the browser surfaces).
-- **Remote control** (`/api/remote/*`): streams the kiosk tab as JPEG
-  screencast frames over SSE and forwards taps/keystrokes back via the `Input`
-  domain — this is how the one-time PCO login is done from the panel.
-- **Scheduler** (`server/scheduler.js`): auto-on (turn the TV on before the
-  next service/rehearsal time via CEC) and the daily reboot (cron, matched
-  with `cron-parser`; reboot command is platform-aware).
-- **PCO importer** (`server/pco.js`): reads the Services v2 API (read-only)
-  to list upcoming plans grouped by folder → service type. Auth is a personal
-  access token (`Bearer`) or `app_id:secret` (Basic). `KIOSK_PCO_API_BASE`
-  overrides the base URL for tests.
+- **Local display** (`public/display.*` · `GET /display`) — Countdown Full–style
+  dark page. Item remaining/overtime from Live API; pre-service countdown from
+  plan times. Client interpolates between ~1s server polls.
+- **Live poller** (`server/live-display.js`) — polls Services Live for the
+  active plan; SSE hub at `GET /api/display/stream`; snapshot at
+  `GET /api/display/state`.
+- **CDP driving** (`server/kiosk.js` · `KioskDriver`) — connects via
+  `chrome-remote-interface`, reconnects on crash, same-URL guard on
+  `navigate()`. On select, navigates to local `/display` (loopback).
+- **Scheduler** (`server/scheduler.js`) — CEC auto-on before next
+  service/rehearsal; daily reboot via `cron-parser` (platform-aware reboot
+  command).
+- **PCO client** (`server/pco.js`) — Services v2 + Live API. Bearer PAT or
+  Basic `app_id:secret`. Key from `KIOSK_PCO_API_KEY` (or repo `.env` loaded at
+  start) then `config.pco.apiKey`. `KIOSK_PCO_API_BASE` for tests.
 
-## Authentication (important)
+---
 
-Auth lives **inside the app** on every platform — there is no Basic auth and no
-Caddy `basic_auth` anymore. `server/auth.js` provides:
+## Authentication
 
-- Cookie sessions (`kiosk_session`, HttpOnly, SameSite=Lax, Secure when the
-  request is HTTPS; server-side token Map).
-- A **first-run admin setup**: `GET /api/auth/status` returns
-  `{ authenticated, setupRequired }`; when no admin exists the panel shows a
-  "Create admin account" form (`POST /api/auth/setup`). Afterwards it's a
-  normal login (`POST /api/auth/login`) / logout (`POST /api/auth/logout`).
-- The admin credentials live in `config.json` as `admin: { username,
-  passwordHash }` (bcrypt via `bcryptjs`); `GET /api/state` exposes only
-  `adminConfigured` (never the hash).
-- `requireAuth` is mounted with `app.use('/api', requireAuth)` AFTER the
-  `/api/auth/*` routes, so the auth endpoints are public and everything else is
-  protected.
-- **Loopback is always allowed** (the kiosk window and local control skip
-  auth), so the TV display works without a login. `requireAuth` uses
-  `clientAddress(req)`: for a loopback peer it takes the **rightmost**
-  `X-Forwarded-For` entry (what Caddy appended), so LAN clients arriving
-  through the Caddy reverse proxy are never mistaken for loopback — the login
-  page genuinely protects the panel on Linux/macOS. Direct non-loopback peers
-  (the Windows HTTPS listener) never consult `X-Forwarded-For`, so a forged
-  header can't bypass auth.
-- Linux/macOS: Caddy is a **TLS-only** reverse proxy to `127.0.0.1:3001`
-  (no auth config). Windows: in-server HTTPS on `0.0.0.0:443` (`KIOSK_TLS=1`),
-  plus a plain-HTTP listener on `127.0.0.1:3001` for the kiosk window.
-- `app.set('trust proxy', 1)` so `req.secure` reflects TLS behind Caddy (Secure
-  cookie handling).
+Auth lives **inside the app** on every platform. `server/auth.js`:
 
-**When adding a new `/api/*` endpoint**: it is automatically behind
-`requireAuth` (loopback exempt) — that's usually what you want. If it must be
-public, put it under `/api/auth/` or register it before the middleware. The
-one deliberate exception is `GET /api/update/progress` (registered before
-`requireAuth`): applying an update restarts the control server, wiping the
-in-memory sessions, so the panel must be able to keep polling the progress bar
-afterwards. It only exposes update state (version/percent/message), nothing
-sensitive.
+- Cookie sessions (`kiosk_session`, HttpOnly, SameSite=Lax, Secure on HTTPS;
+  server-side token Map).
+- First-run setup: `GET /api/auth/status` → `{ authenticated, setupRequired }`;
+  `POST /api/auth/setup` then normal login/logout.
+- Credentials in `config.json` as `admin: { username, passwordHash }`
+  (bcrypt). `GET /api/state` exposes only `adminConfigured`.
+- `requireAuth` mounts **after** `/api/auth/*`, so auth routes are public.
+- **Loopback always allowed** (kiosk window). For a loopback peer,
+  `clientAddress` uses the **rightmost** `X-Forwarded-For` entry (what Caddy
+  appended) so LAN clients through the proxy authenticate. Direct
+  non-loopback peers (Windows HTTPS) never consult `X-Forwarded-For`.
+- Linux/macOS: Caddy is TLS-only → `127.0.0.1:3001`. Windows: HTTPS on
+  `0.0.0.0:443` (`KIOSK_TLS=1`) + HTTP on `127.0.0.1:3001` for the kiosk
+  window.
+- `app.set('trust proxy', 1)` so `req.secure` reflects TLS behind Caddy.
+
+> [!IMPORTANT]
+> New `/api/*` routes are automatically behind `requireAuth` (loopback
+> exempt). Public endpoints go under `/api/auth/` or register **before** the
+> middleware. Deliberate exception: `GET /api/update/progress` (registered
+> early) so the panel can poll across a server restart that wipes sessions —
+> it only exposes update state.
+
+---
 
 ## Config (`config.json`)
 
-Everything the server persists lives in one JSON file (`KIOSK_CONFIG`, default
-`./config.json`; `app/` uses `%APPDATA%\Planning Center Kiosk\config.json`):
+`KIOSK_CONFIG` (default `./config.json`; Electron:
+`%APPDATA%\Planning Center Kiosk\config.json`):
 
 ```json
 {
-  "urlTemplate": "https://services.planningcenteronline.com/live/{serviceId}",
   "activeServiceId": null,
   "defaultDisplayType": null,
   "defaultTheme": null,
@@ -130,84 +133,80 @@ Everything the server persists lives in one JSON file (`KIOSK_CONFIG`, default
 }
 ```
 
-Versions are **date-based** (`YYYY.M.D`, e.g. `2026.8.4`) in `package.json`
-and `app/package.json`; the update checker (`server/update.js`) compares them
-numerically. Releases are created manually from the GitHub Releases page
-(stable `YYYY.M.D`, or `YYYY.M.D-beta` marked as pre-release). `server/update.js`
-uses `/releases/latest` (stable only) unless `config.update.includePrereleases`
-is on (then it reads the newest entry of `/releases`). `.github/workflows/
-release.yml` auto-attaches the Windows artifacts + source tarball when a
-release is published.
+When adding a field: update `defaults()` **and** `normalize()` in
+`server/config.js`. Saves are atomic (`.tmp` + rename).
 
-- `server/config.js` has a single `normalize()` that validates/migrates every
-  field — **when you add a config field, add it to `defaults()` and
-  `normalize()`** so hand-edited or old files never crash the server. Saving is
-  atomic (write `.tmp` + rename).
-- The URL template substitutes `{serviceId}` and `{displayType}` (URL-encoded)
-  via `server/url.js`.
+`server/index.js` loads a repo-root `.env` (if present) without overriding
+existing environment variables — useful for `KIOSK_PCO_API_KEY` in development.
+
+Versions are date-based (`YYYY.M.D` / `YYYY.M.D-beta`) in root +
+`app/package.json`. Updater uses `/releases/latest` unless
+`includePrereleases` is on. `release.yml` attaches Windows artifacts + source
+tarball when a release is published.
+
+---
 
 ## Commands
 
 ```bash
-npm install          # install server deps (dev deps needed for tests; NODE_ENV=production
-                     # in some environments OMITS devDeps — run `npm install --include=dev`)
-npm start            # control server on http://127.0.0.1:3001
-npm run kiosk        # open a kiosk browser window (Edge/Chrome/chromium) at the idle page
-npm test             # node --test (mock CDP + mock PCO; no browser/network needed)
+npm install --include=dev   # if NODE_ENV=production omits devDeps
+npm run build:panel         # Vite build → public/
+npm start                   # http://127.0.0.1:3001
+npm run kiosk               # kiosk browser at the idle page
+npm run dev:panel           # Vite dev server (proxies /api → :3001)
+npm test                    # node --test (mock CDP + mock PCO)
 ```
+
+---
 
 ## Tests
 
-`test/` uses `node:test` (no framework). It never talks to a real browser or
-network:
+`test/` uses `node:test` only — mock CDP/PCO, no live network:
 
-- `helpers/mock-cdp.js` — a fake Chromium DevTools endpoint (HTTP `/json/list`
-  + a WebSocket) so `KioskDriver` can be exercised (navigate, screencast,
-  input, emulation). `mock.setEvaluateResult()` controls `Runtime.evaluate`
-  responses.
-- `helpers/mock-pco.js` — a fake Planning Center API (folders, service types,
-  plans, plan times).
-- `server/app.js` is built by `createApp()` with injectable `kiosk`, `cec`, and
-  `logger`, so integration-style tests spin up a real Express app on an
-  ephemeral port with mocked dependencies. `runScheduler` stays false in tests.
-- Tests hit `127.0.0.1`, so `requireAuth` (loopback-exempt) never blocks them;
-  the session/auth logic is tested directly via `test/auth.test.js` and
-  `test/auth-api.test.js`.
+| Helper | Role |
+| --- | --- |
+| `helpers/mock-cdp.js` | Fake CDP HTTP + WebSocket for `KioskDriver` |
+| `helpers/mock-pco.js` | Fake Planning Center API (including Live) |
+| `createApp()` | Injectable `kiosk` / `cec` / `logger`; `runScheduler` false in tests |
 
-**Adding a route or feature**: add tests alongside; the mock CDP/PCO helpers
-are the way to test CDP/API interactions without a browser.
+Tests hit `127.0.0.1` (loopback-exempt). Auth is covered in `test/auth.test.js`
+and `test/auth-api.test.js`. Live display math in `test/live-display.test.js`.
+Add tests with new routes/features.
 
-## Sharp edges / gotchas
+---
+
+## Sharp edges
 
 - `selfsigned` v5 is **async** (`await selfsigned.generate(...)`).
-- The auth middleware previously ran *before* Express and used Express-only
-  `res.set()/res.status()` on a raw Node response — that crashed the HTTPS
-  handler. It now uses raw Node methods (`res.setHeader`/`res.statusCode`).
-- The Windows kiosk profile must never be created by an **elevated** process —
-  an admin-owned profile makes Edge exit immediately and `run.js`/the tray
-  restart it in a loop (the original "new window every 3s" bug). The Electron
-  app and the Windows installer deliberately never run the app elevated.
-- Electron's data folder name comes from `app.setName('Planning Center Kiosk')`
-  (set in `app/main.js`); without it Electron uses the package `name`.
-- `npm install` inside this environment omits devDeps when `NODE_ENV=production`
-  is set — run `npm install --include=dev` before `npm test`.
-- The Windows build via electron-builder needs symlink privilege on a dev box
-  (enable Developer Mode or run the build elevated); GitHub Actions runners are
-  already elevated, so CI is unaffected.
+- `gen-cert.js` skips regeneration when certs exist (phones keep trusting
+  them). Pass `--force` to rotate.
+- Sessions expire after 24h, wipe on password change, and die on server
+  restart (in-memory).
+- Selecting a plan re-resolves `serviceTypeId` before Live polls (stale type
+  IDs return 404 from PCO).
+- Panel build uses `emptyOutDir: false` so `public/display.*` survives Vite.
+- Version strings must match in root `package.json`, `app/package.json`, and
+  `installer/windows/kiosk.iss` (`MyAppVersion`). CI enforces via
+  `.github/scripts/check-versions.js`.
+- Auth middleware on the HTTPS path must use raw Node
+  (`res.setHeader` / `res.statusCode`), not Express `res.set()` /
+  `res.status()`.
+- Windows kiosk profile must **never** be created elevated — admin-owned
+  profile → Edge exits → restart loop. Electron + installer stay
+  non-elevated.
+- Electron data folder name comes from
+  `app.setName('Planning Center Kiosk')` in `app/main.js`.
+- electron-builder needs symlink privilege on a local Windows box (Developer
+  Mode); GHA runners are fine. `build-windows.ps1` uses `npm ci` when
+  `app/package-lock.json` exists.
+
+---
 
 ## Packaging quick reference
 
-- **Linux**: `sudo ./kiosk/install.sh` — installs packages, the lightdm kiosk
-  session, the control server (unprivileged user), a TLS-only Caddy, and
-  optionally Tailscale. systemd units in `kiosk/*.service` (placeholders
-  `@DEST@`, `@NODE_BIN@`, `@CONFIG_DIR@`, `@CONTROL_USER@`, `@BROWSER_USER@`
-  are resolved by install.sh).
-- **NixOS**: flake + module under `nix/` (`services.planningcenter-timer-kiosk`).
-  Pin a release tag, enable the module, `nixos-rebuild switch`. See
-  `docs/PLATFORMS.md` and `nix/example-configuration.nix`.
-- **Windows**: `installer/windows/build-windows.ps1` bundles `server/`,
-  `public/`, and `kiosk/gen-cert.js` into `app/`, builds the portable exe with
-  electron-builder, then Inno Setup wraps it. The app is `app/main.js`
-  (server in-process + tray + kiosk window).
-- **macOS**: `kiosk/install-macos.sh` (Homebrew Node/Caddy + launchd + a panel
-  app).
+| Platform | Entry |
+| --- | --- |
+| **Linux** | `sudo ./kiosk/install.sh` — packages, lightdm session, unprivileged control user, TLS-only Caddy, optional Tailscale. Builds the React panel when `panel/` is present. Units use `@DEST@` / `@NODE_BIN@` / … placeholders resolved by install. |
+| **NixOS** | `nix/` module `services.planningcenter-timer-kiosk` — pin a release tag, `nixos-rebuild switch`. Builds via `npmBuildScript = "build:panel"`. |
+| **Windows** | `installer/windows/build-windows.ps1` — builds panel, bundles into `app/`, electron-builder portable exe, Inno Setup wrapper. |
+| **macOS** | `kiosk/install-macos.sh` — Homebrew Node/Caddy + launchd + panel app. |

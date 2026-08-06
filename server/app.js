@@ -6,8 +6,8 @@ const express = require('express');
 const { spawn } = require('child_process');
 
 const { saveConfig } = require('./config');
-const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
+const { createLiveDisplay } = require('./live-display');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
 const {
@@ -43,7 +43,7 @@ const wifiModule = require('./wifi');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
-function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, wifi = wifiModule, runScheduler = false, rebootFn = null, version = require('../package.json').version }) {
+function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, wifi = wifiModule, runScheduler = false, rebootFn = null, version = require('../package.json').version, liveDisplay: liveDisplayOpt = null }) {
   kiosk.idleUrl = idleUrl || `http://127.0.0.1:3001/nowplaying`;
 
   function persist() {
@@ -56,14 +56,69 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     }
   }
 
-  // Point the kiosk tab at whatever should be showing right now: the active
-  // service's countdown page, or the idle "now playing" page when nothing is
-  // selected. Runs on startup and after every (re)connection so the TV self-
-  // heals after a Chromium crash/restart.
+  // Local Countdown Full page (replaces navigating Chromium to PCO's live URL).
+  function displayPageUrl() {
+    try {
+      const u = new URL(kiosk.idleUrl);
+      u.pathname = '/display';
+      u.search = '';
+      u.hash = '';
+      return u.toString();
+    } catch {
+      return 'http://127.0.0.1:3001/display';
+    }
+  }
+
+  function displayOptionsFor(service) {
+    return {
+      planId: service.serviceId,
+      serviceTypeId: service.serviceTypeId || null,
+      serviceName: service.name || null,
+      displayType: service.displayType || config.defaultDisplayType || 'Countdown Full',
+      theme: config.defaultTheme || 'dark',
+    };
+  }
+
+  const liveDisplay = liveDisplayOpt || createLiveDisplay({
+    getApiKey: () => pcoApiKey(),
+    logger,
+  });
+
+  async function startLiveFor(service) {
+    const opts = displayOptionsFor(service);
+    // Always re-resolve the service type on select: editing a plan ID used to
+    // leave a stale serviceTypeId, which makes /live return HTTP 404.
+    if (pcoApiKey()) {
+      try {
+        const st = await resolveServiceTypeId(opts.planId, { apiKey: pcoApiKey() });
+        if (st) {
+          if (service.serviceTypeId !== st) {
+            service.serviceTypeId = st;
+            persist();
+          }
+          opts.serviceTypeId = st;
+        }
+      } catch (err) {
+        logger.warn(`[display] resolve service type failed: ${err.message}`);
+      }
+    }
+    liveDisplay.start(opts);
+  }
+
+  // Point the kiosk tab at whatever should be showing right now: the local
+  // /display page for the active service, or the idle "now playing" page.
+  // Runs on startup and after every (re)connection so the TV self-heals after
+  // a Chromium crash/restart.
   function syncKiosk() {
     const active = config.services.find((s) => s.id === config.activeServiceId);
-    const url = active ? buildUrl(config.urlTemplate, active) : kiosk.idleUrl;
-    return kiosk.navigate(url).catch((err) => {
+    if (active) {
+      startLiveFor(active).catch((err) => logger.warn(`[display] start failed: ${err.message}`));
+      return kiosk.navigate(displayPageUrl()).catch((err) => {
+        logger.error(`[kiosk] sync failed: ${err.message}`);
+      });
+    }
+    liveDisplay.stop();
+    return kiosk.navigate(kiosk.idleUrl).catch((err) => {
       logger.error(`[kiosk] sync failed: ${err.message}`);
     });
   }
@@ -202,6 +257,34 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     res.type('html').send(renderNowPlaying());
   });
 
+  // Custom Countdown Full display (TV). Driven by /api/display/* from the Live poller.
+  app.get('/display', (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'display.html'));
+  });
+
+  app.get('/api/display/state', (req, res) => {
+    res.json(liveDisplay.getState());
+  });
+
+  app.get('/api/display/stream', (req, res) => {
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify(liveDisplay.getState())}\n\n`);
+    const unsub = liveDisplay.subscribe((state) => {
+      try {
+        res.write(`data: ${JSON.stringify(state)}\n\n`);
+      } catch {
+        /* client gone */
+      }
+    });
+    req.on('close', unsub);
+  });
+
   app.get('/api/state', (req, res) => res.json(state()));
   app.get('/api/health', (req, res) => res.json({ ok: true, kiosk: { connected: kiosk.connected } }));
 
@@ -268,6 +351,8 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       config.update.includePrereleases = !!body.updatePrereleases;
     }
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    const active = config.services.find((s) => s.id === config.activeServiceId);
+    if (active) liveDisplay.updateOptions(displayOptionsFor(active));
     res.json({
       urlTemplate: config.urlTemplate,
       defaultDisplayType: config.defaultDisplayType,
@@ -393,24 +478,14 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     res.json({ ok: true });
   });
 
-  // Apply the saved defaults to the kiosk's current live page (no selection
-  // needed). Best-effort per setting.
+  // Push saved layout/theme defaults into the local /display poller (no PCO DOM).
   app.post('/api/kiosk/settings/apply', async (req, res) => {
     const applied = { displayType: null, theme: null };
-    try {
-      if (config.defaultDisplayType) {
-        await kiosk.setDisplayType(config.defaultDisplayType);
-        applied.displayType = config.defaultDisplayType;
-      }
-      if (config.defaultTheme) {
-        await kiosk.setTheme(config.defaultTheme);
-        applied.theme = config.defaultTheme;
-      }
-      res.json({ ok: true, applied });
-    } catch (err) {
-      logger.error(`[kiosk] apply settings failed: ${err.message}`);
-      res.status(502).json({ error: err.message, applied });
-    }
+    const active = config.services.find((s) => s.id === config.activeServiceId);
+    if (config.defaultDisplayType) applied.displayType = config.defaultDisplayType;
+    if (config.defaultTheme) applied.theme = config.defaultTheme;
+    if (active) liveDisplay.updateOptions(displayOptionsFor(active));
+    res.json({ ok: true, applied });
   });
 
   app.post('/api/services', (req, res) => {
@@ -445,10 +520,15 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     const service = findService(req.params.id);
     if (!service) return res.status(404).json({ error: 'service not found' });
     const body = req.body || {};
+    let serviceIdChanged = false;
     if (body.serviceId !== undefined) {
       const serviceId = typeof body.serviceId === 'string' ? body.serviceId.trim() : '';
       if (!serviceId) return res.status(400).json({ error: 'serviceId cannot be empty' });
-      service.serviceId = serviceId;
+      if (serviceId !== service.serviceId) {
+        service.serviceId = serviceId;
+        service.serviceTypeId = null; // stale type would 404 the Live poller
+        serviceIdChanged = true;
+      }
     }
     if (body.name !== undefined) {
       const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -458,6 +538,22 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       service.displayType = typeof body.displayType === 'string' ? body.displayType.trim() : '';
     }
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    if (serviceIdChanged && pcoApiKey()) {
+      resolveServiceTypeId(service.serviceId, { apiKey: pcoApiKey() })
+        .then((st) => {
+          if (st && service.serviceId === (body.serviceId || service.serviceId)) {
+            service.serviceTypeId = st;
+            persist();
+            if (config.activeServiceId === service.id) {
+              liveDisplay.updateOptions(displayOptionsFor(service));
+              startLiveFor(service).catch(() => {});
+            }
+          }
+        })
+        .catch(() => {});
+    } else if (config.activeServiceId === service.id) {
+      liveDisplay.updateOptions(displayOptionsFor(service));
+    }
     res.json({ service });
   });
 
@@ -467,90 +563,65 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     const [removed] = config.services.splice(idx, 1);
     if (config.activeServiceId === removed.id) {
       config.activeServiceId = null;
+      liveDisplay.stop();
       syncKiosk();
     }
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
     res.json({ ok: true });
   });
 
-  // Select a service: record it as active and navigate the kiosk tab there.
-  // If the kiosk is unreachable we still record the selection so that the
-  // next connection self-heals, and report 502 so the UI can warn.
+  // Select a service: record it as active, start the Live poller, and point
+  // Chromium at the local /display page (not PCO's web UI).
   app.post('/api/select', async (req, res) => {
     const service = findService((req.body || {}).id);
     if (!service) return res.status(404).json({ error: 'service not found' });
-    const url = buildUrl(config.urlTemplate, service);
-    const displayTypeValue = service.displayType || config.defaultDisplayType;
-    const applyDisplayType = !!displayTypeValue;
-    const applyTheme = !!config.defaultTheme;
-    const needsDesktop = applyDisplayType || applyTheme;
+    const url = displayPageUrl();
+    const displayTypeValue = service.displayType || config.defaultDisplayType || 'Countdown Full';
+
+    config.activeServiceId = service.id;
+    if (!persist()) return res.status(500).json({ error: 'failed to save config' });
 
     try {
-      // The layout/theme controls only render at a desktop viewport. Emulate
-      // one BEFORE navigating so the TV never shows the emulated (zoomed)
-      // view — it lands inside the loading screen instead.
-      if (needsDesktop) await kiosk.setDeviceMetrics(1920, 1080);
+      await startLiveFor(service);
       const result = await kiosk.navigate(url);
-      if (needsDesktop && result.skipped) {
-        // The tab was already on this URL (loaded at its native viewport, so
-        // no controller controls). Reload it so it re-renders at the desktop
-        // viewport we just emulated.
-        await kiosk.reload();
-      }
-      config.activeServiceId = service.id;
-      if (!persist()) return res.status(500).json({ error: 'failed to save config' });
-
-      // Apply the display type (per-service override, else the saved default)
-      // and the default theme. Best-effort — never blocks the selection.
-      let displayType = null;
-      if (applyDisplayType) {
-        try {
-          await kiosk.setDisplayType(displayTypeValue, { emulate: false, restoreViewport: false });
-          displayType = { value: displayTypeValue, applied: true, source: service.displayType ? 'service' : 'default' };
-        } catch (err) {
-          logger.warn(`[kiosk] display type "${displayTypeValue}" not applied: ${err.message}`);
-          displayType = { value: displayTypeValue, applied: false, error: err.message };
-        }
-      }
-      if (applyTheme) {
-        try {
-          await kiosk.setTheme(config.defaultTheme, { emulate: false, restoreViewport: false });
-        } catch (err) {
-          logger.warn(`[kiosk] theme "${config.defaultTheme}" not applied: ${err.message}`);
-        }
-      }
+      const displayType = {
+        value: displayTypeValue,
+        applied: true,
+        source: service.displayType ? 'service' : 'default',
+      };
       res.json({ ok: true, url, activeServiceId: service.id, skipped: result.skipped, displayType });
     } catch (err) {
-      config.activeServiceId = service.id;
-      persist();
       res.status(502).json({
         error: 'kiosk unreachable',
         detail: err.message,
         url,
         activeServiceId: service.id,
       });
-    } finally {
-      if (needsDesktop) {
-        try { await kiosk.clearDeviceMetrics(); } catch { /* kiosk may be down */ }
-      }
     }
   });
 
-  // Set the kiosk's current live page display type directly (used by the
-  // panel's remote-control section to experiment without editing a service).
+  // Update the local display layout (stored on the active poller / defaults).
+  // No longer clicks Planning Center's toolbar via CDP.
   app.post('/api/kiosk/display-type', async (req, res) => {
     const value = (req.body || {}).value;
     if (!value) return res.status(400).json({ error: 'value is required' });
-    try {
-      await kiosk.setDisplayType(value);
-      res.json({ ok: true, value });
-    } catch (err) {
-      logger.error(`[kiosk] set display type failed: ${err.message}`);
-      res.status(502).json({ error: err.message });
+    if (!DISPLAY_TYPES.includes(value)) {
+      return res.status(502).json({ error: `unknown display type "${value}"; expected one of: ${DISPLAY_TYPES.join(', ')}` });
     }
+    const active = config.services.find((s) => s.id === config.activeServiceId);
+    if (active) {
+      active.displayType = value;
+      persist();
+      liveDisplay.updateOptions(displayOptionsFor(active));
+    } else {
+      config.defaultDisplayType = value;
+      persist();
+    }
+    res.json({ ok: true, value });
   });
 
   app.post('/api/deselect', async (req, res) => {
+    liveDisplay.stop();
     try {
       await kiosk.navigate(kiosk.idleUrl);
     } catch (err) {
@@ -799,7 +870,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     scheduler.start();
   }
 
-  return { app, kiosk, config, scheduler };
+  return { app, kiosk, config, scheduler, liveDisplay };
 }
 
 function renderNowPlaying() {

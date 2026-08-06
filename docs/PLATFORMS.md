@@ -1,53 +1,69 @@
 # Platforms
 
-The kiosk control software is platform-agnostic: the core is Node + Chromium
-(any Chromium-based browser) talking Chrome DevTools Protocol. What differs is
-only the packaging and which platform-specific features are available.
+The control software is the same everywhere: Node + a Chromium-based browser
+over the Chrome DevTools Protocol, showing a local `/display` countdown. Packaging
+and a few platform-specific features differ.
 
-## Feature availability
+Related: [SETUP.md](SETUP.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [README](../README.md)
+
+---
+
+## Feature matrix
 
 | Feature | Linux (Debian) | NixOS | Windows | macOS |
-| --- | --- | --- | --- | --- |
-| Control server + panel | ✅ | ✅ | ✅ | ✅ |
+| --- | :---: | :---: | :---: | :---: |
+| Control server + React panel | ✅ | ✅ | ✅ | ✅ |
+| Local `/display` countdown (Live API) | ✅ | ✅ | ✅ | ✅ |
 | Kiosk browser (CDP-driven) | ✅ X11 | ✅ Cage/Wayland | ✅ | ✅ |
-| Display type / theme | ✅ | ✅ | ✅ | ✅ |
-| Remote control / PCO login | ✅ | ✅ | ✅ | ✅ |
-| PCO API importer | ✅ | ✅ | ✅ | ✅ |
+| PCO API importer + Live poller | ✅ | ✅ | ✅ | ✅ |
 | Daily reboot schedule | ✅ | ✅ | ✅ | ⚠️ needs privileges |
-| TV power (CEC) + auto-on | ✅ | ✅ | ❌ (USB CEC adapter only) | ❌ |
+| TV power (CEC) + auto-on | ✅ | ✅ | ❌[^cec] | ❌ |
 | mDNS (`https://hostname.local`) | ✅ avahi | ✅ avahi | ✅ built-in | ✅ Bonjour |
 | In-panel software update | ✅ `update.sh` | ❌ use `nixos-rebuild` | download / reinstall | re-run installer |
 
-TV power control (HDMI-CEC) is Linux-only for practical purposes: on Windows
-it needs a Pulse-Eight USB-CEC adapter (the panel auto-hides the section when
-`cec-client` isn't found), and macOS has no common equivalent. Auto-on depends
-on CEC, so it's disabled on Windows/macOS too.
+[^cec]: Windows would need a Pulse-Eight USB-CEC adapter; the panel hides the
+section when `cec-client` is missing. Auto-on depends on CEC, so it is off on
+Windows/macOS too.
 
-## Linux (Raspberry Pi OS / Debian / Ubuntu, arm64 + amd64)
+```mermaid
+flowchart TB
+  Core["Shared core<br/>server/ + panel/ → public/"]
 
-The primary, best-tested target.
+  Core --> Linux["Linux<br/>install.sh · systemd · Caddy · X11"]
+  Core --> NixOS["NixOS<br/>flake module · Cage/Wayland"]
+  Core --> Windows["Windows<br/>Electron · in-process HTTPS"]
+  Core --> macOS["macOS<br/>launchd · Homebrew Caddy"]
+```
+
+---
+
+## Linux (Raspberry Pi OS / Debian / Ubuntu)
+
+Primary, best-tested target — arm64 and amd64.
 
 ```bash
 sudo ./kiosk/install.sh
 ```
 
-Installs everything: system packages, the X/lightdm kiosk session, the control
-server, Caddy (HTTPS on :443), and optionally Tailscale. See
+Installs packages, the X/lightdm kiosk session, the control server, builds the
+React panel, Caddy (HTTPS on :443), and optionally Tailscale. See
 [SETUP.md](SETUP.md).
+
+---
 
 ## NixOS (declarative, Cage/Wayland)
 
-Fully declarative: enable the module and the machine boots into the kiosk
-(Cage on tty1 → Chromium, control server, Caddy TLS panel).
+Enable the module and the machine boots into the kiosk: Cage on tty1 →
+Chromium, control server, Caddy TLS panel.
 
 **Releases:** pin a published GitHub release tag (same tags as Windows/Linux).
-There is no separate Nix binary on the release — the tag *is* the flake ref.
-CI runs `nix flake check` on `x86_64-linux` and `aarch64-linux` for every PR,
-push to `main`, and published release (release attach jobs wait on that gate).
+There is no separate Nix binary — the tag *is* the flake ref. CI runs
+`nix flake check` on `x86_64-linux` and `aarch64-linux` for every PR, push to
+`main`, and published release.
 
 ```nix
 {
-  # Prefer a release tag in production (example):
+  # Prefer a release tag in production:
   inputs.kiosk.url = "github:Paperboypaddy/Planning-Center-Timer-Kiosk/2026.8.5";
   # Or follow main while developing:
   # inputs.kiosk.url = "github:Paperboypaddy/Planning-Center-Timer-Kiosk";
@@ -66,56 +82,54 @@ push to `main`, and published release (release attach jobs wait on that gate).
 }
 ```
 
-See [`nix/example-configuration.nix`](../nix/example-configuration.nix). State
-lives under `/var/lib/planningcenter-timer-kiosk`. Create the admin account on
-first panel visit (`https://<hostname>.local`). Updates: bump the flake input
-to a newer tag and `nixos-rebuild switch` — not the panel's install button.
+See [`nix/example-configuration.nix`](../nix/example-configuration.nix).
 
-The packaging under `nix/` is shaped for a future nixpkgs PR (`package.nix` +
+| | |
+| --- | --- |
+| State | `/var/lib/planningcenter-timer-kiosk` |
+| Admin | Create on first panel visit (`https://<hostname>.local`) |
+| Updates | Bump the flake input → `nixos-rebuild switch` (panel button uses `nixos-rebuild`) |
+
+Packaging under `nix/` is shaped for a future nixpkgs PR (`package.nix` +
 module).
 
-## Windows (Mini PC / dev laptop)
+---
 
-The Windows build is a **single-file Electron app** (`Planning Center Kiosk.exe`):
-one program that is the whole kiosk. The control server runs in-process (with
-in-server HTTPS on `:443` — no Caddy needed), the kiosk display is
-the app's own fullscreen window driven by the same CDP logic, and a **system
-tray icon** provides:
+## Windows (Mini PC / laptop)
 
-- **Start kiosk** / **Stop kiosk** — show/hide the kiosk window (the panel stays
-  reachable from phones while stopped).
-- **Open control panel** — opens `https://<hostname>.local` (also on
-  double-click).
-- **Quit** — stop everything and exit.
+A **single-file Electron app** (`Planning Center Kiosk.exe`): control server
+in-process with HTTPS on `:443`, fullscreen kiosk window driven by the same
+CDP logic, and a **system tray**:
 
-On first run the app generates a self-signed cert into its user-data folder
-(`%APPDATA%\Planning Center Kiosk`). Open the panel and create the **admin
-account** on the "Create admin account" screen (username + password); change
-it any time from Settings → Change password. Single-instance, restart-on-crash
-logging to `kiosk.log`, and it always runs non-elevated — so the
-administrator-owned profile bug that plagued the old `run.js` setup can't
-recur.
+| Tray action | Effect |
+| --- | --- |
+| **Start / Stop kiosk** | Show or hide the kiosk window (panel stays reachable) |
+| **Open control panel** | Opens `https://<hostname>.local` (also on double-click) |
+| **Quit** | Stop everything and exit |
 
-**Build it** (on a Windows box with Node ≥ 18 and Inno Setup 6; the ISCC env var
-must point at `iscc.exe` if it's not on PATH):
+First run generates a self-signed cert under
+`%APPDATA%\Planning Center Kiosk`. Create the admin account on the panel.
+Single-instance, restart-on-crash logging to `kiosk.log`, always non-elevated
+(avoids an admin-owned browser profile that breaks Edge).
+
+### Build
+
+Needs Node ≥ 18 and Inno Setup 6 (`ISCC` on PATH or set explicitly):
 
 ```powershell
 $env:ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 powershell -ExecutionPolicy Bypass -File installer\windows\build-windows.ps1
 ```
 
-This produces:
-- `app\dist\Planning-Center-Kiosk-<version>.exe` — the portable single-file app
-  (self-contained; ~150–200 MB because it embeds a Chromium runtime).
-- `installer\windows\output\KioskSetup.exe` — a slim installer that places it in
-  Program Files, adds Startup/desktop shortcuts, and opens the firewall for
-  `:443`.
+| Output | Description |
+| --- | --- |
+| `app\dist\Planning-Center-Kiosk-<version>.exe` | Portable single-file app (~150–200 MB) |
+| `installer\windows\output\KioskSetup.exe` | Slim installer (Program Files, shortcuts, firewall for :443) |
 
-Launch the app from the Start menu / desktop shortcut the first time. Create
-the admin account on the panel's first-run screen.
+For an unattended kiosk, enable Windows **autologon** so the box boots into
+the session that runs the Startup shortcut.
 
-For an unattended kiosk, enable Windows **autologon** so the box boots into the
-session that runs the Startup shortcut.
+---
 
 ## macOS (best-effort)
 
@@ -123,9 +137,12 @@ session that runs the Startup shortcut.
 ./kiosk/install-macos.sh
 ```
 
-Installs Node + Caddy via Homebrew, copies the app to `/usr/local/
-planningcenter-kiosk`, generates a self-signed cert, installs a launchd
-agent that keeps `kiosk/run.js` (server + Caddy + browser) alive in your GUI
-session, and adds a "Kiosk Control panel" app to /Applications. Allow Caddy in
-the macOS firewall when prompted. The daily-reboot schedule needs elevated
-privileges, so it's best-effort from a user agent.
+Installs Node + Caddy via Homebrew, copies the app to
+`/usr/local/planningcenter-kiosk`, generates a self-signed cert, installs a
+launchd agent that keeps `kiosk/run.js` (server + Caddy + browser) alive in
+your GUI session, and adds a **Kiosk Control panel** app under `/Applications`.
+Allow Caddy in the firewall when prompted.
+
+> [!NOTE]
+> The daily-reboot schedule needs elevated privileges, so it is best-effort
+> from a user agent.

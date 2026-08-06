@@ -13,6 +13,7 @@ const { startMockCdp } = require('./helpers/mock-cdp');
 const { quietLogger } = require('./helpers/util');
 
 const IDLE = 'http://127.0.0.1:3999/nowplaying';
+const DISPLAY = 'http://127.0.0.1:3999/display';
 
 async function startApp(mockPort) {
   const configPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kiosk-dt-')), 'config.json');
@@ -39,33 +40,28 @@ async function startApp(mockPort) {
   };
 }
 
-test('POST /api/kiosk/display-type sets the layout via a desktop viewport then restores it', async () => {
+test('POST /api/kiosk/display-type updates local layout without CDP toolbar clicks', async () => {
   const mock = await startMockCdp({ url: IDLE });
-  mock.setEvaluateResult({ state: 'done' });
   const ctx = await startApp(mock.port);
   try {
     const res = await ctx.send('/api/kiosk/display-type', 'POST', { value: 'Countdown Full' });
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
+    assert.equal(res.body.value, 'Countdown Full');
     const methods = mock.commandLog.map((c) => c.method);
-    assert.ok(methods.includes('Emulation.setDeviceMetricsOverride'), 'desktop viewport emulated');
-    assert.ok(methods.includes('Emulation.clearDeviceMetricsOverride'), 'native viewport restored');
-    assert.ok(methods.includes('Runtime.evaluate'), 'DOM script ran');
+    assert.ok(!methods.includes('Runtime.evaluate'), 'no PCO DOM clicks');
+    assert.ok(!methods.includes('Emulation.setDeviceMetricsOverride'));
 
-    // Unknown display type is rejected before touching the browser.
-    mock.commandLog.length = 0;
     const bad = await ctx.send('/api/kiosk/display-type', 'POST', { value: 'Nope' });
     assert.equal(bad.status, 502);
-    assert.equal(mock.commandLog.length, 0);
   } finally {
     await ctx.close();
     await mock.close();
   }
 });
 
-test('select applies the service display type and reports it', async () => {
+test('select reports display type and navigates to /display (no PCO DOM)', async () => {
   const mock = await startMockCdp({ url: IDLE });
-  mock.setEvaluateResult({ state: 'done' });
   const ctx = await startApp(mock.port);
   try {
     const res = await ctx.send('/api/services', 'POST', {
@@ -77,32 +73,27 @@ test('select applies the service display type and reports it', async () => {
 
     const sel = await ctx.send('/api/select', 'POST', { id: service.id });
     assert.equal(sel.status, 200);
+    assert.equal(sel.body.url, DISPLAY);
     assert.equal(sel.body.displayType.value, 'Lower Third');
     assert.equal(sel.body.displayType.applied, true);
+    assert.equal(sel.body.displayType.source, 'service');
+    assert.ok(mock.navigateLog.includes(DISPLAY));
+    assert.ok(!mock.commandLog.some((c) => c.method === 'Runtime.evaluate'));
 
-    // Emulation must happen BEFORE navigating so the TV never shows the
-    // emulated (zoomed) view — it lands inside the loading screen.
-    const idxEmulate = mock.commandLog.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
-    const idxNavigate = mock.commandLog.findIndex((c) => c.method === 'Page.navigate');
-    assert.ok(idxEmulate >= 0 && idxNavigate >= 0 && idxEmulate < idxNavigate,
-      'desktop viewport emulated before navigating');
-
-    // A service without a display type leaves the PCO setting untouched.
     const res2 = await ctx.send('/api/services', 'POST', { name: 'Wed', serviceId: '456' });
     const sel2 = await ctx.send('/api/select', 'POST', { id: res2.body.service.id });
-    assert.equal(sel2.body.displayType, null);
+    assert.equal(sel2.body.displayType.value, 'Countdown Full');
+    assert.equal(sel2.body.displayType.source, 'default');
   } finally {
     await ctx.close();
     await mock.close();
   }
 });
 
-test('select applies the global default display type and default theme', async () => {
+test('select applies the global default display type from settings', async () => {
   const mock = await startMockCdp({ url: IDLE });
-  mock.setEvaluateResult({ state: 'done' });
   const ctx = await startApp(mock.port);
   try {
-    // Save defaults.
     const setRes = await ctx.send('/api/settings', 'PUT', {
       defaultDisplayType: 'Countdown Full',
       defaultTheme: 'light',
@@ -111,7 +102,6 @@ test('select applies the global default display type and default theme', async (
     assert.equal(setRes.body.defaultDisplayType, 'Countdown Full');
     assert.equal(setRes.body.defaultTheme, 'light');
 
-    // A service with no displayType picks up the default.
     const res = await ctx.send('/api/services', 'POST', { name: 'Sun', serviceId: '777' });
     const sel = await ctx.send('/api/select', 'POST', { id: res.body.service.id });
     assert.equal(sel.status, 200);
@@ -119,17 +109,11 @@ test('select applies the global default display type and default theme', async (
     assert.equal(sel.body.displayType.applied, true);
     assert.equal(sel.body.displayType.source, 'default');
 
-    // The default theme was applied too (Runtime.evaluate calls for theme).
-    const evaluateCalls = mock.commandLog.filter((c) => c.method === 'Runtime.evaluate').length;
-    assert.ok(evaluateCalls >= 2, 'display type + theme both evaluated');
-
-    // A per-service displayType overrides the default.
     const res2 = await ctx.send('/api/services', 'POST', { name: 'Sat', serviceId: '888', displayType: 'Lower Third' });
     const sel2 = await ctx.send('/api/select', 'POST', { id: res2.body.service.id });
     assert.equal(sel2.body.displayType.value, 'Lower Third');
     assert.equal(sel2.body.displayType.source, 'service');
 
-    // Invalid settings are rejected.
     const bad = await ctx.send('/api/settings', 'PUT', { defaultTheme: 'pink' });
     assert.equal(bad.status, 400);
     const bad2 = await ctx.send('/api/settings', 'PUT', { defaultDisplayType: 'Nope' });
@@ -140,12 +124,10 @@ test('select applies the global default display type and default theme', async (
   }
 });
 
-test('POST /api/kiosk/settings/apply applies saved defaults to the current page', async () => {
+test('POST /api/kiosk/settings/apply returns saved defaults without CDP', async () => {
   const mock = await startMockCdp({ url: IDLE });
-  mock.setEvaluateResult({ state: 'done' });
   const ctx = await startApp(mock.port);
   try {
-    // Nothing configured: no-op.
     let r = await ctx.send('/api/kiosk/settings/apply', 'POST');
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.applied, { displayType: null, theme: null });
@@ -154,6 +136,7 @@ test('POST /api/kiosk/settings/apply applies saved defaults to the current page'
     r = await ctx.send('/api/kiosk/settings/apply', 'POST');
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.applied, { displayType: 'Countdown Full', theme: 'dark' });
+    assert.ok(!mock.commandLog.some((c) => c.method === 'Runtime.evaluate'));
   } finally {
     await ctx.close();
     await mock.close();

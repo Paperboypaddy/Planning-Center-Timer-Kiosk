@@ -40,11 +40,34 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
 
   const planTimesByPlan = {
     '90197325': [
-      { id: 't1', time_type: 'rehearsal', starts_at: '2026-08-08T18:00:00-05:00' },
-      { id: 't2', time_type: 'service', starts_at: '2026-08-09T09:00:00-05:00' },
+      { id: 't1', time_type: 'rehearsal', starts_at: '2026-08-08T18:00:00-05:00', ends_at: '2026-08-08T19:00:00-05:00' },
+      { id: 't2', time_type: 'service', starts_at: '2026-08-09T09:00:00-05:00', ends_at: '2026-08-09T10:50:00-05:00' },
     ],
     '90211110': [
-      { id: 't3', time_type: 'service', starts_at: '2026-08-12T19:00:00-05:00' },
+      { id: 't3', time_type: 'service', starts_at: '2026-08-12T19:00:00-05:00', ends_at: '2026-08-12T20:30:00-05:00' },
+    ],
+  };
+
+  // Mutable Live session fixtures (tests can patch via returned handle).
+  const livesByPlan = {
+    '90197325': {
+      id: 'live-90197325',
+      title: 'Sunday Live',
+      currentItemTime: {
+        id: 'it1',
+        length: 300,
+        live_start_at: '2026-08-09T09:00:00-05:00',
+        live_end_at: '2026-08-09T09:05:00-05:00',
+        itemId: 'item-a',
+      },
+    },
+  };
+
+  const itemsByPlan = {
+    '90197325': [
+      { id: 'item-a', title: 'Welcome', sequence: 1, length: 300 },
+      { id: 'item-b', title: 'Message', sequence: 2, length: 1800 },
+      { id: 'item-c', title: 'Closing', sequence: 3, length: 300 },
     ],
   };
 
@@ -121,9 +144,62 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
       const times = (planTimesByPlan[pm[2]] || []).map((t) => ({
         type: 'PlanTime',
         id: t.id,
-        attributes: { time_type: t.time_type, starts_at: t.starts_at },
+        attributes: {
+          time_type: t.time_type,
+          starts_at: t.starts_at,
+          ends_at: t.ends_at || null,
+        },
       }));
       return api({ data: times, meta: { total_count: times.length } });
+    }
+
+    const liveM = /^\/services\/v2\/service_types\/([^/]+)\/plans\/([^/]+)\/live$/.exec(url.pathname);
+    if (liveM) {
+      const planId = liveM[2];
+      const live = livesByPlan[planId];
+      if (!live) {
+        return api({ data: [], meta: { total_count: 0 } });
+      }
+      const included = [];
+      const relationships = {};
+      if (live.currentItemTime) {
+        included.push({
+          type: 'ItemTime',
+          id: live.currentItemTime.id,
+          attributes: {
+            length: live.currentItemTime.length,
+            live_start_at: live.currentItemTime.live_start_at,
+            live_end_at: live.currentItemTime.live_end_at,
+          },
+          relationships: live.currentItemTime.itemId
+            ? { item: { data: { type: 'Item', id: live.currentItemTime.itemId } } }
+            : {},
+        });
+        relationships.current_item_time = { data: { type: 'ItemTime', id: live.currentItemTime.id } };
+      }
+      return api({
+        data: {
+          type: 'Live',
+          id: live.id,
+          attributes: { title: live.title || null },
+          relationships,
+        },
+        included,
+      });
+    }
+
+    const itemsM = /^\/services\/v2\/service_types\/([^/]+)\/plans\/([^/]+)\/items$/.exec(url.pathname);
+    if (itemsM) {
+      const items = (itemsByPlan[itemsM[2]] || []).map((it) => ({
+        type: 'Item',
+        id: it.id,
+        attributes: {
+          title: it.title,
+          sequence: it.sequence,
+          length: it.length,
+        },
+      }));
+      return api({ data: items, meta: { total_count: items.length } });
     }
 
     res.statusCode = 404;
@@ -137,6 +213,8 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
         port: server.address().port,
         server,
         requestedPaths,
+        livesByPlan,
+        itemsByPlan,
         close: () => new Promise((res) => server.close(res)),
       });
     });

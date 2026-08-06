@@ -1,0 +1,79 @@
+/* Countdown Full — dark (v1). Full-bleed TV display; no chrome. */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #f2f2f2;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  overflow: hidden;
+  cursor: none;
+}
+
+#stage {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 4vw 8vh;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.waiting {
+  margin: 0;
+  font-size: clamp(1.25rem, 3.5vw, 2.5rem);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: #a8a8a8;
+  max-width: 28em;
+  line-height: 1.35;
+}
+
+.timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6vh;
+  width: 100%;
+}
+
+.clock {
+  font-size: clamp(5rem, 22vw, 16rem);
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: #f5f5f5;
+}
+
+.clock.overtime {
+  color: #e53935;
+}
+
+.caption {
+  margin: 0;
+  font-size: clamp(1rem, 2.8vw, 2rem);
+  font-weight: 400;
+  color: #9a9a9a;
+  letter-spacing: 0.01em;
+}
+
+.fallback {
+  position: fixed;
+  bottom: 1.5vh;
+  left: 0;
+  right: 0;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #555;
+  text-align: center;
+}
+
+body.theme-light {
+  background: #f7f7f7;
+  color: #111;
+}
+body.theme-light .waiting { color: #555; }
+body.theme-light .clock { color: #111; }
+body.theme-light .caption { color: #666; }

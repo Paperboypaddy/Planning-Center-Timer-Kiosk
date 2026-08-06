@@ -156,12 +156,18 @@ async function listPlans(opts = {}) {
     .sort((a, b) => String(a.sortDate).localeCompare(String(b.sortDate)));
 }
 
-// Service + rehearsal times for one plan (used by the auto-on scheduler).
+// Service + rehearsal times for one plan (used by the auto-on scheduler and
+// the custom display's projected end time).
 async function listPlanTimes(planId, serviceTypeId, { apiKey, signal } = {}) {
   const data = await pagingGet(`/service_types/${serviceTypeId}/plans/${planId}/plan_times`, { apiKey, signal });
   return data.map((t) => {
     const a = t.attributes || {};
-    return { id: t.id, timeType: a.time_type || null, startsAt: a.starts_at || null };
+    return {
+      id: t.id,
+      timeType: a.time_type || null,
+      startsAt: a.starts_at || null,
+      endsAt: a.ends_at || null,
+    };
   });
 }
 
@@ -179,4 +185,118 @@ async function resolveServiceTypeId(planId, { apiKey, signal } = {}) {
   return null;
 }
 
-module.exports = { PcoError, listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId };
+function includedById(doc, type, id) {
+  if (!id) return null;
+  return (doc.included || []).find((r) => r.type === type && r.id === id) || null;
+}
+
+// Read-only snapshot of Services LIVE for the custom TV display.
+// Returns null fields when LIVE has not been started yet.
+async function fetchLiveSnapshot(planId, serviceTypeId, { apiKey, signal } = {}) {
+  if (!planId || !serviceTypeId) {
+    throw new PcoError('planId and serviceTypeId are required for live display', { code: 'bad_request' });
+  }
+  const base = `/service_types/${encodeURIComponent(serviceTypeId)}/plans/${encodeURIComponent(planId)}`;
+  const liveDoc = await pcoFetch(
+    `${base}/live?include=current_item_time,next_item_time`,
+    { apiKey, signal }
+  );
+
+  // Collection or single resource depending on whether LIVE was started.
+  const liveRows = Array.isArray(liveDoc.data) ? liveDoc.data : liveDoc.data ? [liveDoc.data] : [];
+  const live = liveRows[0] || null;
+
+  let currentItemTime = null;
+  let nextItemTime = null;
+  if (live) {
+    const curRel = live.relationships && live.relationships.current_item_time && live.relationships.current_item_time.data;
+    const nextRel = live.relationships && live.relationships.next_item_time && live.relationships.next_item_time.data;
+    // Only use current_item_time when the relationship is set — do NOT fall
+    // back to the first included ItemTime (that is often next_item_time).
+    if (curRel) {
+      const curRes = includedById(liveDoc, curRel.type || 'ItemTime', curRel.id);
+      if (curRes) {
+        const a = curRes.attributes || {};
+        const itemRel = curRes.relationships && curRes.relationships.item && curRes.relationships.item.data;
+        currentItemTime = {
+          id: curRes.id,
+          length: Number(a.length) || 0,
+          liveStartAt: a.live_start_at || null,
+          liveEndAt: a.live_end_at || null,
+          itemId: itemRel ? itemRel.id : null,
+        };
+      }
+    }
+    if (nextRel) {
+      const nextRes = includedById(liveDoc, nextRel.type || 'ItemTime', nextRel.id);
+      if (nextRes) {
+        const a = nextRes.attributes || {};
+        nextItemTime = {
+          id: nextRes.id,
+          length: Number(a.length) || 0,
+          liveStartAt: a.live_start_at || null,
+          liveEndAt: a.live_end_at || null,
+        };
+      }
+    }
+  }
+
+  // Plan items (for summing lengths after the current item / projected end).
+  let items = [];
+  try {
+    const itemRows = await pagingGet(`${base}/items?order=sequence`, { apiKey, signal, maxPages: 5 });
+    items = itemRows.map((row) => {
+      const a = row.attributes || {};
+      return {
+        id: row.id,
+        title: a.title || a.description || '',
+        sequence: a.sequence != null ? Number(a.sequence) : 0,
+        length: Number(a.length) || 0,
+        itemType: a.item_type || null,
+        servicePosition: a.service_position || null,
+      };
+    });
+  } catch {
+    items = [];
+  }
+
+  const times = await listPlanTimes(planId, serviceTypeId, { apiKey, signal });
+  const serviceTime = pickUpcomingServiceTime(times);
+
+  return {
+    liveId: live ? live.id : null,
+    liveTitle: live && live.attributes ? live.attributes.title || null : null,
+    currentItemTime,
+    nextItemTime,
+    items,
+    serviceEndsAt: serviceTime ? serviceTime.endsAt : null,
+    serviceStartsAt: serviceTime ? serviceTime.startsAt : null,
+  };
+}
+
+function pickUpcomingServiceTime(times, now = Date.now()) {
+  const services = (times || []).filter((t) => t.timeType === 'service');
+  const parse = (iso) => {
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? t : null;
+  };
+  const upcoming = services
+    .map((t) => ({ t, start: parse(t.startsAt) }))
+    .filter((x) => x.start != null && x.start > now)
+    .sort((a, b) => a.start - b.start);
+  if (upcoming.length) return upcoming[0].t;
+  const past = services
+    .map((t) => ({ t, start: parse(t.startsAt) }))
+    .filter((x) => x.start != null)
+    .sort((a, b) => b.start - a.start);
+  return (past[0] && past[0].t) || services[0] || times[0] || null;
+}
+
+module.exports = {
+  PcoError,
+  listPlans,
+  listPlanGroups,
+  listPlanTimes,
+  resolveServiceTypeId,
+  fetchLiveSnapshot,
+};

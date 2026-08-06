@@ -29,11 +29,12 @@ buildNpmPackage rec {
       ]);
   };
 
-  npmDepsHash = "sha256-ZyxCo2NpQEWsDuQjCHdOedvHpOm1fbC7GPLnOdr3HYQ=";
+  npmDepsHash = "sha256-F82d19mvmXdBg3/VGcKf1W3Nsd+FUW2vrYE0VM9ewMQ=";
 
   nativeBuildInputs = [ makeWrapper ];
 
-  dontNpmBuild = true;
+  # Build the Vite/React control panel into public/ before install.
+  npmBuildScript = "build:panel";
 
   # Application layout (not a library under node_modules/).
   installPhase = ''

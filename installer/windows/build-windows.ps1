@@ -15,6 +15,15 @@ $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $App = Join-Path $Root 'app'
 
+Write-Host "==> Building the control panel (Vite/React)"
+Push-Location $Root
+try {
+  npm ci
+  npm run build:panel
+} finally {
+  Pop-Location
+}
+
 Write-Host "==> Bundling shared code into $App"
 Copy-Item -Recurse -Force (Join-Path $Root 'server') (Join-Path $App 'server')
 Copy-Item -Recurse -Force (Join-Path $Root 'public') (Join-Path $App 'public')

@@ -4,6 +4,36 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
+// Load repo-root `.env` into process.env when present (does not override
+// already-set variables). Lets KIOSK_PCO_API_KEY work without manual `source`.
+function loadDotEnv(filePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return;
+  }
+  for (const line of raw.split(/\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    if (process.env[key] !== undefined) continue;
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    process.env[key] = val;
+  }
+}
+
+loadDotEnv(path.join(__dirname, '..', '.env'));
+
 const { loadConfig } = require('./config');
 const { KioskDriver } = require('./kiosk');
 const { createApp } = require('./app');

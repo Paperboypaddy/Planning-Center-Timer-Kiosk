@@ -130,6 +130,13 @@ fi
 # --- App files -----------------------------------------------------------------
 echo "==> Installing app files to $DEST_DIR"
 mkdir -p "$DEST_DIR" "$CONFIG_DIR"
+
+# Control panel is Vite/React — build into public/ when sources are present.
+if [[ -d "$SRC_DIR/panel" && -f "$SRC_DIR/panel/vite.config.ts" ]]; then
+  echo "==> Building control panel (npm run build:panel)"
+  ( cd "$SRC_DIR" && npm install --include=dev --no-audit --no-fund && npm run build:panel )
+fi
+
 cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" \
       "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$DEST_DIR"
 chmod +x "$DEST_DIR/kiosk/"*.sh 2>/dev/null || true

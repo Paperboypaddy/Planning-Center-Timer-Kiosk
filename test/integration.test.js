@@ -65,10 +65,10 @@ test('services CRUD, template, select/deselect drive the kiosk tab', async () =>
     });
     assert.equal(res.status, 200);
 
-    // Select -> kiosk navigated to the rendered URL, active recorded + persisted
+    // Select -> kiosk navigated to the local /display page, active recorded + persisted
     res = await appCtx.send('/api/select', 'POST', { id: service.id });
     assert.equal(res.status, 200);
-    const expected = 'https://services.planningcenteronline.com/live/90197325?view=';
+    const expected = 'http://127.0.0.1:3999/display';
     assert.deepEqual(mock.navigateLog, [expected]);
 
     state = await appCtx.get('/api/state');
@@ -135,7 +135,7 @@ test('select while kiosk is down returns 502, records the selection, and self-he
     const mock = await startMockCdp({ url: IDLE, port: deadPort });
     try {
       await waitFor(() => mock.navigateLog.length >= 1);
-      assert.equal(mock.navigateLog[0], 'https://services.planningcenteronline.com/live/555123');
+      assert.equal(mock.navigateLog[0], 'http://127.0.0.1:3999/display');
     } finally {
       await mock.close();
     }
