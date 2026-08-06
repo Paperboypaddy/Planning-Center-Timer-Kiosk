@@ -130,8 +130,19 @@ fi
 # --- App files -----------------------------------------------------------------
 echo "==> Installing app files to $DEST_DIR"
 mkdir -p "$DEST_DIR" "$CONFIG_DIR"
-cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" \
-      "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$DEST_DIR"
+# Sync code trees with --delete so removed modules do not linger after upgrades.
+# Config and browser profile live outside DEST_DIR and are untouched.
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete "$SRC_DIR/server/" "$DEST_DIR/server/"
+  rsync -a --delete "$SRC_DIR/public/" "$DEST_DIR/public/"
+  rsync -a --delete "$SRC_DIR/kiosk/" "$DEST_DIR/kiosk/"
+  rsync -a --delete "$SRC_DIR/docs/" "$DEST_DIR/docs/"
+  cp -f "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$DEST_DIR/"
+else
+  rm -rf "$DEST_DIR/server" "$DEST_DIR/public" "$DEST_DIR/kiosk" "$DEST_DIR/docs"
+  cp -r "$SRC_DIR/server" "$SRC_DIR/public" "$SRC_DIR/kiosk" "$SRC_DIR/docs" "$DEST_DIR"
+  cp -f "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$DEST_DIR/"
+fi
 chmod +x "$DEST_DIR/kiosk/"*.sh 2>/dev/null || true
 
 echo "==> Installing npm dependencies"
@@ -246,8 +257,8 @@ systemctl restart kiosk-browser.service
 
 if ! command -v caddy >/dev/null 2>&1; then
   echo "==> Installing Caddy"
-  curl -fsSL -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
-    https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
     > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -qq

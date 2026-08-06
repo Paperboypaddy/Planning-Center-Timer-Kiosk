@@ -42,19 +42,49 @@ function isAvailable() {
 function run(command, timeoutMs = 12000) {
   return new Promise((resolve) => {
     let child;
+    let settled = false;
+    let timedOut = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
     try {
-      child = spawn('cec-client', ['-s', '-d', '1'], { timeout: timeoutMs });
+      child = spawn('cec-client', ['-s', '-d', '1']);
     } catch (err) {
       return resolve({ ok: false, error: err.message });
     }
     let out = '';
     let err = '';
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    }, timeoutMs);
     child.stdout.on('data', (d) => { out += d.toString(); });
     child.stderr.on('data', (d) => { err += d.toString(); });
-    child.on('error', (e) => resolve({ ok: false, error: e.message }));
-    child.on('close', () => resolve({ ok: true, out, err }));
-    child.stdin.write(`${command}\n`);
-    child.stdin.end();
+    child.on('error', (e) => finish({ ok: false, error: e.message, out, err }));
+    child.on('close', (code, signal) => {
+      if (timedOut) {
+        return finish({ ok: false, error: `cec-client timed out after ${timeoutMs}ms`, out, err });
+      }
+      if (code !== 0) {
+        return finish({
+          ok: false,
+          error: err.trim() || `cec-client exited with code ${code}${signal ? ` (${signal})` : ''}`,
+          out,
+          err,
+          code,
+        });
+      }
+      finish({ ok: true, out, err });
+    });
+    try {
+      child.stdin.write(`${command}\n`);
+      child.stdin.end();
+    } catch (e) {
+      finish({ ok: false, error: e.message, out, err });
+    }
   });
 }
 

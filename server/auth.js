@@ -18,6 +18,8 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
 const SESSION_COOKIE = 'kiosk_session';
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h absolute lifetime
+const SESSION_MAX_AGE_SEC = Math.floor(SESSION_TTL_MS / 1000);
 const sessions = new Map(); // token -> { username, createdAt }
 
 // Login-attempt limiting. Failures are tracked per client IP so a brute-force
@@ -112,15 +114,29 @@ function createSession(username) {
 }
 
 function getSession(token) {
-  return token ? sessions.get(token) || null : null;
+  if (!token) return null;
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
+    sessions.delete(token);
+    return null;
+  }
+  return session;
 }
 
 function destroySession(token) {
   if (token) sessions.delete(token);
 }
 
+function destroyAllSessions() {
+  sessions.clear();
+}
+
 function setSessionCookie(res, token, secure) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`);
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SEC}${secure ? '; Secure' : ''}`
+  );
 }
 
 function clearSessionCookie(res) {
@@ -153,11 +169,14 @@ function requestIsSecure(req) {
 
 module.exports = {
   SESSION_COOKIE,
+  SESSION_TTL_MS,
+  SESSION_MAX_AGE_SEC,
   LOGIN_MAX_FAILURES,
   LOGIN_WINDOW_MS,
   clearLoginFailures,
   clientAddress,
   createSession,
+  destroyAllSessions,
   destroySession,
   getSession,
   hashPassword,

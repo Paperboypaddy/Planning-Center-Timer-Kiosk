@@ -180,6 +180,17 @@ are the way to test CDP/API interactions without a browser.
 ## Sharp edges / gotchas
 
 - `selfsigned` v5 is **async** (`await selfsigned.generate(...)`).
+- `kiosk/gen-cert.js` skips regeneration when `kiosk-cert.pem` /
+  `kiosk-key.pem` already exist (phones keep trusting the same cert across
+  updates). Pass `--force` to rotate.
+- Sessions expire after 24h and are wiped on password change; they are also
+  in-memory, so a control-server restart logs everyone out.
+- Kiosk navigation is allowlisted to Planning Center hosts (+ local idle URL);
+  `/api/remote/start` always opens the hard-coded PCO login URL.
+- Version strings live in three places that must match: root `package.json`,
+  `app/package.json`, and `installer/windows/kiosk.iss` (`MyAppVersion`). CI
+  runs `.github/scripts/check-versions.js` to enforce this. `compareVersions`
+  is prerelease-aware (`beta.2` > `beta.1`; stable > matching beta).
 - The auth middleware previously ran *before* Express and used Express-only
   `res.set()/res.status()` on a raw Node response — that crashed the HTTPS
   handler. It now uses raw Node methods (`res.setHeader`/`res.statusCode`).
@@ -193,13 +204,15 @@ are the way to test CDP/API interactions without a browser.
   is set — run `npm install --include=dev` before `npm test`.
 - The Windows build via electron-builder needs symlink privilege on a dev box
   (enable Developer Mode or run the build elevated); GitHub Actions runners are
-  already elevated, so CI is unaffected.
+  already elevated, so CI is unaffected. `installer/windows/build-windows.ps1`
+  uses `npm ci` when `app/package-lock.json` is present.
 
 ## Packaging quick reference
 
 - **Linux**: `sudo ./kiosk/install.sh` — installs packages, the lightdm kiosk
   session, the control server (unprivileged user), a TLS-only Caddy, and
-  optionally Tailscale. systemd units in `kiosk/*.service` (placeholders
+  optionally Tailscale. Code trees are synced with `rsync --delete` on upgrade.
+  systemd units in `kiosk/*.service` (placeholders
   `@DEST@`, `@NODE_BIN@`, `@CONFIG_DIR@`, `@CONTROL_USER@`, `@BROWSER_USER@`
   are resolved by install.sh).
 - **NixOS**: flake + module under `nix/` (`services.planningcenter-timer-kiosk`).

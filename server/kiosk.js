@@ -33,6 +33,19 @@ class KioskDriver extends EventEmitter {
     this.client = null;
     this.stopped = false;
     this._connecting = null;
+    this._exclusive = Promise.resolve();
+  }
+
+  // Serialize mutations that touch viewport / navigation so overlapping
+  // select / display-type / theme / remote-start calls cannot interleave CDP.
+  runExclusive(fn) {
+    const run = this._exclusive.then(() => fn());
+    // Keep the chain alive even if fn rejects; swallow so the queue continues.
+    this._exclusive = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 
   get connected() {
@@ -56,6 +69,7 @@ class KioskDriver extends EventEmitter {
   }
 
   async connect() {
+    if (this.stopped) throw new Error('kiosk driver stopped');
     if (this.client) return this.client;
     if (this._connecting) return this._connecting;
 
@@ -68,6 +82,10 @@ class KioskDriver extends EventEmitter {
         // of fetching /json/protocol on every (re)connect.
         local: true,
       });
+      if (this.stopped) {
+        try { client.close(); } catch { /* ignore */ }
+        throw new Error('kiosk driver stopped');
+      }
       client.on('disconnect', () => this._onDisconnect());
       await client.send('Page.enable');
       // Force a black page background on every new document. Sites like the
@@ -93,6 +111,10 @@ class KioskDriver extends EventEmitter {
         });
       } catch {
         // unsupported on some Chromium builds; harmless
+      }
+      if (this.stopped) {
+        try { client.close(); } catch { /* ignore */ }
+        throw new Error('kiosk driver stopped');
       }
       this.client = client;
       this.emit('connect');
@@ -371,7 +393,9 @@ class KioskDriver extends EventEmitter {
 
   stop() {
     this.stopped = true;
-    if (this.client) this.client.close();
+    if (this.client) {
+      try { this.client.close(); } catch { /* already closed */ }
+    }
     this.client = null;
   }
 }

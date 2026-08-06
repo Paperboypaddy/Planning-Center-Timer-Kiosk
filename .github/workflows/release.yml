@@ -13,6 +13,28 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the release: tests must pass and the tag must match package.json.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Check version sync
+        run: node .github/scripts/check-versions.js
+      - name: Check release tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Release tag '$GITHUB_REF_NAME' (normalized: $TAG) does not match package.json version '$PKG'"
+            exit 1
+          fi
+      - run: npm test
+
   # Gate the release: the published tag must be a buildable flake on both
   # Linux arches we support for NixOS kiosks.
   nix:
@@ -38,7 +60,7 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    needs: [nix]
+    needs: [verify, nix]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,27 +73,56 @@ jobs:
         run: .\installer\windows\build-windows.ps1
         env:
           ISCC: C:\Program Files (x86)\Inno Setup 6\ISCC.exe
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: windows-release
+          path: |
             app/dist/Planning-Center-Kiosk.exe
             installer/windows/output/KioskSetup.exe
 
   package-source:
     runs-on: ubuntu-latest
-    needs: [nix]
+    needs: [verify, nix]
     steps:
       - uses: actions/checkout@v4
       - name: Build the source tarball
         run: git archive --format=tar.gz -o planningcenter-timer-kiosk.tar.gz HEAD
-      # The Linux update script (kiosk/update.sh) verifies the tarball against
-      # this checksum before it extracts and reinstalls as root.
-      - name: Checksum the source tarball
-        run: sha256sum planningcenter-timer-kiosk.tar.gz > checksums.txt
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-release
+          path: planningcenter-timer-kiosk.tar.gz
+
+  # Single attach job so softprops/action-gh-release is not raced by parallel jobs.
+  attach:
+    runs-on: ubuntu-latest
+    needs: [build-windows, package-source]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-release
+          path: artifacts
+      - name: Checksum all release artifacts
+        working-directory: artifacts
+        run: |
+          # Flatten nested paths from the Windows artifact layout.
+          find . -type f \( -name '*.exe' -o -name '*.tar.gz' \) -print0 | while IFS= read -r -d '' f; do
+            base=$(basename "$f")
+            if [ "$f" != "./$base" ]; then mv "$f" "./$base"; fi
+          done
+          find . -type d -empty -delete 2>/dev/null || true
+          sha256sum Planning-Center-Kiosk.exe KioskSetup.exe planningcenter-timer-kiosk.tar.gz > checksums.txt
+          cat checksums.txt
       - name: Attach to the release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            planningcenter-timer-kiosk.tar.gz
-            checksums.txt
+            artifacts/Planning-Center-Kiosk.exe
+            artifacts/KioskSetup.exe
+            artifacts/planningcenter-timer-kiosk.tar.gz
+            artifacts/checksums.txt

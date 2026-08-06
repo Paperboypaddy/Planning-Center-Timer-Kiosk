@@ -26,7 +26,13 @@ function lanIp() {
   }
 }
 
-async function generateCert(outDir, host, ip = lanIp()) {
+async function generateCert(outDir, host, ip = lanIp(), { force = false } = {}) {
+  const key = path.join(outDir, 'kiosk-key.pem');
+  const cert = path.join(outDir, 'kiosk-cert.pem');
+  if (!force && fs.existsSync(key) && fs.existsSync(cert)) {
+    return { key, cert, skipped: true };
+  }
+
   const altNames = [
     { type: 2, value: host },
     { type: 2, value: 'localhost' },
@@ -42,18 +48,22 @@ async function generateCert(outDir, host, ip = lanIp()) {
   });
 
   fs.mkdirSync(outDir, { recursive: true });
-  const key = path.join(outDir, 'kiosk-key.pem');
-  const cert = path.join(outDir, 'kiosk-cert.pem');
   fs.writeFileSync(key, pems.private);
   fs.writeFileSync(cert, pems.cert);
-  return { key, cert };
+  return { key, cert, skipped: false };
 }
 
 async function main() {
-  const outDir = process.argv[2] || '/etc/caddy';
-  const host = process.argv[3] || `${os.hostname()}.local`;
-  const { key, cert } = await generateCert(outDir, host);
-  console.log(`wrote ${cert} / ${key} (CN=${host})`);
+  const args = process.argv.slice(2).filter((a) => a !== '--force');
+  const force = process.argv.includes('--force');
+  const outDir = args[0] || '/etc/caddy';
+  const host = args[1] || `${os.hostname()}.local`;
+  const { key, cert, skipped } = await generateCert(outDir, host, lanIp(), { force });
+  if (skipped) {
+    console.log(`kept existing ${cert} / ${key} (pass --force to regenerate)`);
+  } else {
+    console.log(`wrote ${cert} / ${key} (CN=${host})`);
+  }
 }
 
 module.exports = { generateCert };

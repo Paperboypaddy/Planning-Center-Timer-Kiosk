@@ -896,10 +896,7 @@
 
   remoteStart.addEventListener('click', async () => {
     try {
-      await api('/api/remote/start', {
-        method: 'POST',
-        body: JSON.stringify({ url: 'https://login.planningcenteronline.com/' }),
-      });
+      await api('/api/remote/start', { method: 'POST', body: '{}' });
       remoteView.classList.remove('hidden');
       remoteStart.disabled = true;
       connectRemoteStream();
