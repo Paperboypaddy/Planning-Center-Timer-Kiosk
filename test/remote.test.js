@@ -113,8 +113,17 @@ test('remote control: start navigates to login, streams frames, forwards input w
 
     res = await ctx.send('/api/remote/input', 'POST', { type: 'key', key: 'Enter' });
     assert.equal(res.status, 200);
-    const keyEvents = mock.commandLog.filter((c) => c.method === 'Input.dispatchKeyEvent').map((c) => c.params.type);
-    assert.deepEqual(keyEvents, ['rawKeyDown', 'char', 'keyUp']);
+    const keyDispatches = mock.commandLog.filter((c) => c.method === 'Input.dispatchKeyEvent');
+    assert.deepEqual(keyDispatches.map((c) => c.params.type), ['rawKeyDown', 'char', 'keyUp']);
+    // Every event must carry the virtual key code (KEYMAP.keyCode → windowsVirtualKeyCode).
+    for (const c of keyDispatches) {
+      assert.equal(c.params.windowsVirtualKeyCode, 13, `${c.params.type} missing keyCode`);
+      assert.equal(c.params.nativeVirtualKeyCode, 13);
+    }
+    // text belongs on char only — not on rawKeyDown/keyUp.
+    assert.equal(keyDispatches[0].params.text, undefined);
+    assert.equal(keyDispatches[1].params.text, '\r');
+    assert.equal(keyDispatches[2].params.text, undefined);
 
     // Unsupported input is rejected
     res = await ctx.send('/api/remote/input', 'POST', { type: 'nope' });
