@@ -46,6 +46,34 @@ test('flags always include the dark background + CDP port', () => {
   assert.ok(flags.includes('--user-data-dir=/p'));
   assert.ok(flags.includes('--blink-settings=backgroundcolor=FF000000'));
   assert.ok(flags.includes('--force-dark-mode'));
+  assert.ok(!flags.includes('--ozone-platform=wayland'));
+});
+
+test('wayland flags add ozone platform', () => {
+  const flags = buildFlags({ profileDir: '/p', debugPort: '9222', wayland: true });
+  assert.ok(flags.includes('--ozone-platform=wayland'));
+  assert.ok(flags.includes('--remote-debugging-port=9222'));
+});
+
+test('isWayland detects WAYLAND_DISPLAY and XDG_SESSION_TYPE', () => {
+  const { isWayland } = require('../kiosk/launch-kiosk');
+  assert.equal(isWayland({}), false);
+  assert.equal(isWayland({ WAYLAND_DISPLAY: 'wayland-0' }), true);
+  assert.equal(isWayland({ XDG_SESSION_TYPE: 'wayland' }), true);
+  assert.equal(isWayland({ XDG_SESSION_TYPE: 'x11' }), false);
+});
+
+test('kiosk mode on wayland includes ozone in the command line', () => {
+  const line = buildCommandLine({
+    chrome: 'chrome',
+    profileDir: '/p',
+    debugPort: '9222',
+    url: 'http://u',
+    mode: 'kiosk',
+    wayland: true,
+  });
+  assert.ok(line.includes('--ozone-platform=wayland'));
+  assert.ok(line.includes('--kiosk'));
 });
 
 test('window mode opens the URL in a normal window', () => {

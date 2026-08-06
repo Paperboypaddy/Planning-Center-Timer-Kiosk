@@ -61,3 +61,27 @@ jobs:
         with:
           name: planningcenter-timer-kiosk-source
           path: planningcenter-timer-kiosk.tar.gz
+
+  # NixOS flake: build the package + eval the NixOS module. NixOS installs pin a
+  # git tag / flake ref (no separate binary artifact). Fail CI if the flake
+  # does not check cleanly on the arches we ship for.
+  nix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+      - name: Check Nix formatting
+        run: |
+          fmt=$(nix build --no-link --print-out-paths ".#formatter.${{ matrix.system }}")
+          "$fmt/bin/nixfmt" --check flake.nix nix/*.nix
+      - name: Flake check (package + NixOS module eval)
+        run: nix flake check -L

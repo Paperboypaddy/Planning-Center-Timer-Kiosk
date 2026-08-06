@@ -7,7 +7,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 
-const { compareVersions, getUpdateInfo, readUpdateState, updateStatePath, writeUpdateState } = require('../server/update');
+const { canApplyUpdate, compareVersions, getUpdateInfo, readUpdateState, updateScriptPath, updateStatePath, writeUpdateState } = require('../server/update');
 
 // handler(req.url) -> { status?, body }
 function startMockRelease(handler) {
@@ -144,6 +144,22 @@ test('updateStatePath defaults next to config, overridable via env', () => {
   assert.equal(updateStatePath('/tmp/x/config.json', { KIOSK_UPDATE_STATE: '/tmp/custom.json' }), '/tmp/custom.json');
 });
 
+test('updateScriptPath defaults on linux and empty env disables apply', () => {
+  assert.equal(updateScriptPath({}, 'linux'), '/opt/kiosk/kiosk/update.sh');
+  assert.equal(updateScriptPath({ KIOSK_UPDATE_SCRIPT: '' }, 'linux'), null);
+  assert.equal(updateScriptPath({ KIOSK_UPDATE_SCRIPT: '/bin/true' }, 'linux'), '/bin/true');
+  assert.equal(updateScriptPath({}, 'win32'), null);
+});
+
+test('canApplyUpdate is false when script is empty or missing', () => {
+  assert.equal(canApplyUpdate({ KIOSK_UPDATE_SCRIPT: '' }, 'linux'), false);
+  assert.equal(canApplyUpdate({ KIOSK_UPDATE_SCRIPT: '/nonexistent-kiosk-update' }, 'linux'), false);
+  // Prefer a path that exists on both Debian and NixOS test hosts.
+  const existing = process.execPath;
+  assert.equal(canApplyUpdate({ KIOSK_UPDATE_SCRIPT: existing }, 'linux'), true);
+  assert.equal(canApplyUpdate({}, 'darwin'), false);
+});
+
 // App-level: /api/update/status reflects the toggle + current version.
 const { loadConfig } = require('../server/config');
 const { KioskDriver } = require('../server/kiosk');
@@ -204,7 +220,7 @@ test('GET /api/update/progress is public and reflects the state file', async () 
     const oldBase = process.env.KIOSK_UPDATE_BASE;
     process.env.KIOSK_UPDATE_BASE = mockApi.base;
     const oldScript = process.env.KIOSK_UPDATE_SCRIPT;
-    process.env.KIOSK_UPDATE_SCRIPT = '/bin/true';
+    process.env.KIOSK_UPDATE_SCRIPT = process.execPath;
     try {
       await fetch(`${base}/api/update`, { method: 'POST' });
     } finally {

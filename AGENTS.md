@@ -12,9 +12,10 @@ directly via the Chrome DevTools Protocol (CDP)** — it is NOT an iframe, becau
 Planning Center sends `X-Frame-Options`/CSP that would block embedding.
 
 Supported platforms: **Debian/Ubuntu Linux** (Raspberry Pi, Orange Pi Zero 3,
-x86 Mini PCs), **Windows** (a single-file Electron app), and **macOS**
-(launchd). The core is Node + any Chromium-based browser over CDP, so it is
-platform-agnostic; only the packaging differs. See `docs/PLATFORMS.md`.
+x86 Mini PCs), **NixOS** (declarative flake module + Cage/Wayland), **Windows**
+(a single-file Electron app), and **macOS** (launchd). The core is Node + any
+Chromium-based browser over CDP, so it is platform-agnostic; only the packaging
+differs. See `docs/PLATFORMS.md`.
 
 ## Architecture
 
@@ -41,11 +42,13 @@ Phone/laptop ──HTTPS + login──► Caddy (TLS only) ──► Control ser
 - `app/` — the Windows **single-file Electron app** (`main.js` runs the control
   server in-process, owns the kiosk window, and hosts the system-tray icon with
   Start / Stop / Open panel / Quit).
-- `.github/workflows/ci.yml` — GitHub Actions: tests (ubuntu), the Windows
-  build (portable exe + Inno installer, uploaded as artifacts), and a source
-  tarball. `.github/workflows/release.yml` runs when a release is *published*
-  (never on a push) and attaches the Windows artifacts + source tarball to that
-  release.
+- `.github/workflows/ci.yml` — GitHub Actions: tests (ubuntu), Nix flake check
+  (`x86_64-linux` + `aarch64-linux`), the Windows build (portable exe + Inno
+  installer, uploaded as artifacts), and a source tarball.
+  `.github/workflows/release.yml` runs when a release is *published* (never on
+  a push): flake-check gates the release, then attaches the Windows artifacts +
+  source tarball. NixOS installs pin the git tag as a flake input (no separate
+  Nix binary on the release).
 
 ## Key concepts
 
@@ -199,6 +202,9 @@ are the way to test CDP/API interactions without a browser.
   optionally Tailscale. systemd units in `kiosk/*.service` (placeholders
   `@DEST@`, `@NODE_BIN@`, `@CONFIG_DIR@`, `@CONTROL_USER@`, `@BROWSER_USER@`
   are resolved by install.sh).
+- **NixOS**: flake + module under `nix/` (`services.planningcenter-timer-kiosk`).
+  Pin a release tag, enable the module, `nixos-rebuild switch`. See
+  `docs/PLATFORMS.md` and `nix/example-configuration.nix`.
 - **Windows**: `installer/windows/build-windows.ps1` bundles `server/`,
   `public/`, and `kiosk/gen-cert.js` into `app/`, builds the portable exe with
   electron-builder, then Inno Setup wraps it. The app is `app/main.js`

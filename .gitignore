@@ -2,6 +2,10 @@ node_modules/
 config.json
 config.json.tmp
 *.log
+result
+result-*
+.env
+.env.*
 
 # Windows single-file app build artifacts (recreated by build-windows.ps1)
 app/node_modules/

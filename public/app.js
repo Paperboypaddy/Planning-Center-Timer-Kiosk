@@ -477,9 +477,16 @@
       if (r.updateAvailable) {
         resultEl.textContent = 'Update available: version ' + r.latestVersion + ' (you have ' + r.version + ').';
         resultEl.className = 'msg ok';
-        applyWrap.classList.remove('hidden');
-        hintEl.classList.remove('hidden');
-        hintEl.textContent = r.note || 'Apply it below, or download from the release page.';
+        if (r.canApplyUpdate) {
+          applyWrap.classList.remove('hidden');
+          hintEl.classList.remove('hidden');
+          hintEl.textContent = r.note || 'Apply it below, or download from the release page.';
+        } else {
+          hintEl.classList.remove('hidden');
+          hintEl.textContent =
+            r.note ||
+            'In-app install is not available on this install \u2014 update via nixos-rebuild / your package manager.';
+        }
       } else if (r.note) {
         resultEl.textContent = 'No release published yet \u2014 you\u2019re on the latest.';
         resultEl.className = 'msg';

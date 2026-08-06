@@ -2,6 +2,8 @@ name: Release
 
 # Runs when a release is published (stable or pre-release/beta). Builds the
 # Windows app and attaches the artifacts + a source tarball to that release.
+# Also verifies the NixOS flake on the tagged commit (NixOS installs pin the
+# git tag — there is no separate Nix binary to attach).
 # Releases are manual — this never runs on a plain push/commit.
 on:
   release:
@@ -11,8 +13,32 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the release: the published tag must be a buildable flake on both
+  # Linux arches we support for NixOS kiosks.
+  nix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+      - name: Check Nix formatting
+        run: |
+          fmt=$(nix build --no-link --print-out-paths ".#formatter.${{ matrix.system }}")
+          "$fmt/bin/nixfmt" --check flake.nix nix/*.nix
+      - name: Flake check (package + NixOS module eval)
+        run: nix flake check -L
+
   build-windows:
     runs-on: windows-latest
+    needs: [nix]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,6 +60,7 @@ jobs:
 
   package-source:
     runs-on: ubuntu-latest
+    needs: [nix]
     steps:
       - uses: actions/checkout@v4
       - name: Build the source tarball

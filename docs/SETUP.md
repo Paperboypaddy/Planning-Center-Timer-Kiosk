@@ -10,6 +10,10 @@ Assumes Raspberry Pi OS, Debian, or Ubuntu on **arm64 or amd64** (SBCs like
 the Orange Pi Zero 3 / Raspberry Pi, or x86 Mini PCs) with a display attached
 for the kiosk. Adjust user names and paths to your system.
 
+For a fully declarative NixOS install (Cage/Wayland), see
+[PLATFORMS.md](PLATFORMS.md#nixos-declarative-cagewayland) instead of this
+Debian-oriented guide.
+
 ---
 
 ## 0. Prerequisites
