@@ -218,6 +218,16 @@ systemctl enable kiosk-control.service
 # the service was already running.
 systemctl restart kiosk-control.service
 systemctl enable kiosk-browser.service
+
+# Bring the graphical session up RIGHT NOW so the kiosk is fully running when
+# the installer exits -- no reboot needed. lightdm autologins the browser user
+# into the kiosk X session, and kiosk-browser.service (WantedBy=graphical.target)
+# is pulled in by the target. Best-effort: on a machine with no working display
+# (headless test VMs) lightdm may not start, and the next boot still lands on
+# the kiosk session.
+systemctl enable lightdm
+systemctl start graphical.target || true
+
 # launch-kiosk.sh's wait_for_x handles the boot race with lightdm.
 systemctl restart kiosk-browser.service
 

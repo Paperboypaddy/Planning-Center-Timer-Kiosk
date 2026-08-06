@@ -1,0 +1,22 @@
+name: Install test
+
+# Verifies kiosk/install.sh end-to-end on a fresh Ubuntu 24.04 ARM64 image:
+# install -> lightdm autologin -> X session -> Chromium (CDP) -> control server,
+# all in one shot with no reboot. Uses GitHub's ARM64 hosted runner
+# (ubuntu-24.04-arm). If the repository plan does not enable ARM64 hosted
+# runners, this job stays skipped/pending until they are available.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install-ubuntu-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the full install + kiosk smoke test
+        run: sudo bash .github/scripts/install-test.sh
