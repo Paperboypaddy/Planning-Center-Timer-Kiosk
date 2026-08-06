@@ -48,12 +48,38 @@ function writeUpdateState(filePath, patch) {
 }
 
 function parseVersion(v) {
-  const m = /v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?/.exec(String(v || '').trim());
+  // Keep the prerelease label (e.g. beta.2) so date-based betas compare correctly.
+  const m = /v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?/.exec(String(v || '').trim());
   if (!m) return null;
-  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), prerelease: m[4] || null };
+}
+
+// SemVer prerelease ordering for identifiers separated by '.'.
+function comparePrerelease(a, b) {
+  const as = String(a).split('.');
+  const bs = String(b).split('.');
+  const n = Math.max(as.length, bs.length);
+  for (let i = 0; i < n; i += 1) {
+    const x = as[i];
+    const y = bs[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const nx = /^\d+$/.test(x);
+    const ny = /^\d+$/.test(y);
+    if (nx && ny) {
+      const dx = Number(x) - Number(y);
+      if (dx) return dx < 0 ? -1 : 1;
+    } else if (nx !== ny) {
+      return nx ? -1 : 1;
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
 // -1 if a < b, 0 if equal/unparseable, 1 if a > b.
+// Stable (no prerelease) ranks above any prerelease of the same core version.
 function compareVersions(a, b) {
   const pa = parseVersion(a);
   const pb = parseVersion(b);
@@ -61,7 +87,10 @@ function compareVersions(a, b) {
   for (const key of ['major', 'minor', 'patch']) {
     if (pa[key] !== pb[key]) return pa[key] < pb[key] ? -1 : 1;
   }
-  return 0;
+  if (!pa.prerelease && !pb.prerelease) return 0;
+  if (!pa.prerelease) return 1;
+  if (!pb.prerelease) return -1;
+  return comparePrerelease(pa.prerelease, pb.prerelease);
 }
 
 // Fetch the latest release from GitHub and compare with the running version.
