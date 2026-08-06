@@ -1,6 +1,6 @@
 {
   "name": "planning-center-kiosk",
-  "version": "2026.8.4",
+  "version": "2026.8.5-beta.2",
   "description": "Planning Center countdown kiosk — single-file Windows app",
   "main": "main.js",
   "private": true,

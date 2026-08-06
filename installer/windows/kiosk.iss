@@ -3,7 +3,7 @@
 ; Build with:  .\installer\windows\build-windows.ps1   (or iscc kiosk.iss)
 
 #define MyAppName "Planning Center Kiosk"
-#define MyAppVersion "2026.8.4"
+#define MyAppVersion "2026.8.5-beta.2"
 #define MyAppPublisher "Planning Center Kiosk"
 
 [Setup]

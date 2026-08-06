@@ -1,6 +1,6 @@
 {
   "name": "planningcenter-timer-kiosk",
-  "version": "2026.8.4",
+  "version": "2026.8.5-beta.2",
   "private": true,
   "description": "Kiosk controller that drives a Planning Center Services live/countdown page in a Chromium kiosk via CDP",
   "license": "AGPL-3.0",
