@@ -10,6 +10,7 @@ const path = require('path');
 
 const DEFAULT_REPO = 'Paperboypaddy/Planning-Center-Timer-Kiosk';
 const DEFAULT_API_BASE = 'https://api.github.com';
+const DEFAULT_UPDATE_SCRIPT = '/opt/kiosk/kiosk/update.sh';
 
 const IDLE_UPDATE_STATE = {
   state: 'idle',
@@ -18,6 +19,21 @@ const IDLE_UPDATE_STATE = {
   version: null,
   updatedAt: null,
 };
+
+// Linux Debian/Ubuntu install uses update.sh; NixOS (and other immutable
+// installs) set KIOSK_UPDATE_SCRIPT to empty to disable in-panel apply.
+function updateScriptPath(env = process.env, platform = process.platform) {
+  if (platform !== 'linux') return null;
+  if (Object.prototype.hasOwnProperty.call(env, 'KIOSK_UPDATE_SCRIPT')) {
+    return env.KIOSK_UPDATE_SCRIPT || null;
+  }
+  return DEFAULT_UPDATE_SCRIPT;
+}
+
+function canApplyUpdate(env = process.env, platform = process.platform) {
+  const script = updateScriptPath(env, platform);
+  return !!(script && fs.existsSync(script));
+}
 
 // The update script (kiosk/update.sh) and the control server both write/read a
 // small JSON state file so the panel can show live progress. The file lives
@@ -50,42 +66,38 @@ function writeUpdateState(filePath, patch) {
 // Parse YYYY.M.D or semver, including optional prerelease (e.g. 2026.8.5-beta.2).
 // Stable (no prerelease) sorts above any prerelease of the same Y.M.D.
 function parseVersion(v) {
-  const m = /v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(String(v || '').trim());
+  // Keep the prerelease label (e.g. beta.2) so date-based betas compare correctly.
+  const m = /v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?/.exec(String(v || '').trim());
   if (!m) return null;
-  const prerelease = m[4]
-    ? m[4].split('.').map((part) => (/^\d+$/.test(part) ? Number(part) : part))
-    : null;
-  return {
-    major: Number(m[1]),
-    minor: Number(m[2]),
-    patch: Number(m[3]),
-    prerelease,
-  };
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), prerelease: m[4] || null };
 }
 
+// SemVer prerelease ordering for identifiers separated by '.'.
 function comparePrerelease(a, b) {
-  // null (stable) > any prerelease
-  if (a === null && b === null) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i += 1) {
-    const x = a[i];
-    const y = b[i];
+  const as = String(a).split('.');
+  const bs = String(b).split('.');
+  const n = Math.max(as.length, bs.length);
+  for (let i = 0; i < n; i += 1) {
+    const x = as[i];
+    const y = bs[i];
     if (x === undefined) return -1;
     if (y === undefined) return 1;
-    if (x === y) continue;
-    const xn = typeof x === 'number';
-    const yn = typeof y === 'number';
-    if (xn && yn) return x < y ? -1 : 1;
-    if (xn) return -1; // numeric identifiers have lower precedence than non-numeric
-    if (yn) return 1;
-    return String(x) < String(y) ? -1 : 1;
+    const nx = /^\d+$/.test(x);
+    const ny = /^\d+$/.test(y);
+    if (nx && ny) {
+      const dx = Number(x) - Number(y);
+      if (dx) return dx < 0 ? -1 : 1;
+    } else if (nx !== ny) {
+      return nx ? -1 : 1;
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
   }
   return 0;
 }
 
 // -1 if a < b, 0 if equal/unparseable, 1 if a > b.
+// Stable (no prerelease) ranks above any prerelease of the same core version.
 function compareVersions(a, b) {
   const pa = parseVersion(a);
   const pb = parseVersion(b);
@@ -93,6 +105,9 @@ function compareVersions(a, b) {
   for (const key of ['major', 'minor', 'patch']) {
     if (pa[key] !== pb[key]) return pa[key] < pb[key] ? -1 : 1;
   }
+  if (!pa.prerelease && !pb.prerelease) return 0;
+  if (!pa.prerelease) return 1;
+  if (!pb.prerelease) return -1;
   return comparePrerelease(pa.prerelease, pb.prerelease);
 }
 
@@ -145,11 +160,13 @@ function releasesUrl(repo = process.env.KIOSK_UPDATE_REPO || DEFAULT_REPO) {
 
 module.exports = {
   IDLE_UPDATE_STATE,
+  canApplyUpdate,
   compareVersions,
   getUpdateInfo,
   parseVersion,
   readUpdateState,
   releasesUrl,
+  updateScriptPath,
   updateStatePath,
   writeUpdateState,
 };

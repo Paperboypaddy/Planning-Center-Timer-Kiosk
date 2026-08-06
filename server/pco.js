@@ -80,8 +80,10 @@ async function pagingGet(path, { apiKey, signal, pageSize = 100, maxPages = 3 } 
 // types are excluded. This maps the PCO hierarchy so the operator can segment
 // picks by folder and service type instead of one flat list.
 async function listPlanGroups({ apiKey, signal } = {}) {
+  // PCO omits relationship linkage unless include= is requested; without
+  // service_types every plan collapses into the Unfiled bucket.
   const [folders, types] = await Promise.all([
-    pagingGet('/folders?order=name', { apiKey, signal }),
+    pagingGet('/folders?order=name&include=service_types', { apiKey, signal }),
     pagingGet('/service_types', { apiKey, signal }),
   ]);
 

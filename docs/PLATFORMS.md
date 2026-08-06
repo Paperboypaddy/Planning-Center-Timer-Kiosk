@@ -6,16 +6,17 @@ only the packaging and which platform-specific features are available.
 
 ## Feature availability
 
-| Feature | Linux | Windows | macOS |
-| --- | --- | --- | --- |
-| Control server + panel | ✅ | ✅ | ✅ |
-| Kiosk browser (CDP-driven) | ✅ | ✅ | ✅ |
-| Display type / theme | ✅ | ✅ | ✅ |
-| Remote control / PCO login | ✅ | ✅ | ✅ |
-| PCO API importer | ✅ | ✅ | ✅ |
-| Daily reboot schedule | ✅ | ✅ | ⚠️ needs privileges |
-| TV power (CEC) + auto-on | ✅ | ❌ (USB CEC adapter only) | ❌ |
-| mDNS (`https://hostname.local`) | ✅ avahi | ✅ built-in | ✅ Bonjour |
+| Feature | Linux (Debian) | NixOS | Windows | macOS |
+| --- | --- | --- | --- | --- |
+| Control server + panel | ✅ | ✅ | ✅ | ✅ |
+| Kiosk browser (CDP-driven) | ✅ X11 | ✅ Cage/Wayland | ✅ | ✅ |
+| Display type / theme | ✅ | ✅ | ✅ | ✅ |
+| Remote control / PCO login | ✅ | ✅ | ✅ | ✅ |
+| PCO API importer | ✅ | ✅ | ✅ | ✅ |
+| Daily reboot schedule | ✅ | ✅ | ✅ | ⚠️ needs privileges |
+| TV power (CEC) + auto-on | ✅ | ✅ | ❌ (USB CEC adapter only) | ❌ |
+| mDNS (`https://hostname.local`) | ✅ avahi | ✅ avahi | ✅ built-in | ✅ Bonjour |
+| In-panel software update | ✅ `update.sh` | ❌ use `nixos-rebuild` | download / reinstall | re-run installer |
 
 TV power control (HDMI-CEC) is Linux-only for practical purposes: on Windows
 it needs a Pulse-Eight USB-CEC adapter (the panel auto-hides the section when
@@ -33,6 +34,45 @@ sudo ./kiosk/install.sh
 Installs everything: system packages, the X/lightdm kiosk session, the control
 server, Caddy (HTTPS on :443), and optionally Tailscale. See
 [SETUP.md](SETUP.md).
+
+## NixOS (declarative, Cage/Wayland)
+
+Fully declarative: enable the module and the machine boots into the kiosk
+(Cage on tty1 → Chromium, control server, Caddy TLS panel).
+
+**Releases:** pin a published GitHub release tag (same tags as Windows/Linux).
+There is no separate Nix binary on the release — the tag *is* the flake ref.
+CI runs `nix flake check` on `x86_64-linux` and `aarch64-linux` for every PR,
+push to `main`, and published release (release attach jobs wait on that gate).
+
+```nix
+{
+  # Prefer a release tag in production (example):
+  inputs.kiosk.url = "github:Paperboypaddy/Planning-Center-Timer-Kiosk/2026.8.5";
+  # Or follow main while developing:
+  # inputs.kiosk.url = "github:Paperboypaddy/Planning-Center-Timer-Kiosk";
+
+  outputs = { nixpkgs, kiosk, ... }: {
+    nixosConfigurations.my-kiosk = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux"; # or aarch64-linux
+      modules = [
+        kiosk.nixosModules.default
+        {
+          services.planningcenter-timer-kiosk.enable = true;
+        }
+      ];
+    };
+  };
+}
+```
+
+See [`nix/example-configuration.nix`](../nix/example-configuration.nix). State
+lives under `/var/lib/planningcenter-timer-kiosk`. Create the admin account on
+first panel visit (`https://<hostname>.local`). Updates: bump the flake input
+to a newer tag and `nixos-rebuild switch` — not the panel's install button.
+
+The packaging under `nix/` is shaped for a future nixpkgs PR (`package.nix` +
+module).
 
 ## Windows (Mini PC / dev laptop)
 

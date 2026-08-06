@@ -79,16 +79,21 @@ function startMockPco({ requiredAuth, rateLimited = false } = {}) {
     };
 
     if (url.pathname === '/services/v2/folders') {
-      const data = folders.map(({ id, name, serviceTypeIds }) => ({
-        type: 'Folder',
-        id,
-        attributes: { name },
-        relationships: {
-          service_types: {
+      // Mirror real PCO: service_types linkage only appears when include=service_types.
+      const include = String(url.searchParams.get('include') || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const withTypes = include.includes('service_types');
+      const data = folders.map(({ id, name, serviceTypeIds }) => {
+        const relationships = {};
+        if (withTypes) {
+          relationships.service_types = {
             data: serviceTypeIds.map((sid) => ({ type: 'ServiceType', id: sid })),
-          },
-        },
-      }));
+          };
+        }
+        return { type: 'Folder', id, attributes: { name }, relationships };
+      });
       return api({ data, meta: { total_count: data.length } });
     }
 

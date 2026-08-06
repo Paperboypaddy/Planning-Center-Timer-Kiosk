@@ -7,7 +7,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 
-const { compareVersions, getUpdateInfo, readUpdateState, updateStatePath, writeUpdateState } = require('../server/update');
+const { canApplyUpdate, compareVersions, getUpdateInfo, readUpdateState, updateScriptPath, updateStatePath, writeUpdateState } = require('../server/update');
 
 // handler(req.url) -> { status?, body }
 function startMockRelease(handler) {
@@ -42,10 +42,11 @@ test('compareVersions orders semver and date-based versions', () => {
   assert.equal(compareVersions('2026.8.4', '2026.8.4'), 0);
   assert.equal(compareVersions('2026.8.4', '0.1.0'), 1);
   assert.equal(compareVersions('2026.8.5-beta', '2026.8.4'), 1);
-  assert.equal(compareVersions('2026.8.5-beta.1', '2026.8.5-beta.2'), -1);
+  // Prerelease labels must participate in ordering (beta.2 > beta.1; stable > beta).
   assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5-beta.1'), 1);
-  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5'), -1);
+  assert.equal(compareVersions('2026.8.5-beta.1', '2026.8.5-beta.2'), -1);
   assert.equal(compareVersions('2026.8.5', '2026.8.5-beta.2'), 1);
+  assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5'), -1);
   assert.equal(compareVersions('2026.8.5-beta.2', '2026.8.5-beta.2'), 0);
 });
 
@@ -80,6 +81,22 @@ test('getUpdateInfo with includePrereleases picks the newest beta', async () => 
     assert.equal(info.updateAvailable, true);
     assert.equal(info.latestVersion, '2026.8.5-beta');
     assert.equal(info.prerelease, true);
+  } finally {
+    mock.server.close();
+  }
+});
+
+test('getUpdateInfo with includePrereleases offers a newer beta of the same date', async () => {
+  const mock = await startMockRelease(() => ({ body: [REL('2026.8.5-beta.2', true), REL('2026.8.4')] }));
+  try {
+    const info = await getUpdateInfo({
+      repo: 'x/repo',
+      version: '2026.8.5-beta.1',
+      includePrereleases: true,
+      baseUrl: mock.base,
+    });
+    assert.equal(info.updateAvailable, true);
+    assert.equal(info.latestVersion, '2026.8.5-beta.2');
   } finally {
     mock.server.close();
   }
@@ -125,6 +142,22 @@ test('update state helpers round-trip through the state file', () => {
 test('updateStatePath defaults next to config, overridable via env', () => {
   assert.equal(updateStatePath('/var/lib/kiosk/config.json'), '/var/lib/kiosk/update-state.json');
   assert.equal(updateStatePath('/tmp/x/config.json', { KIOSK_UPDATE_STATE: '/tmp/custom.json' }), '/tmp/custom.json');
+});
+
+test('updateScriptPath defaults on linux and empty env disables apply', () => {
+  assert.equal(updateScriptPath({}, 'linux'), '/opt/kiosk/kiosk/update.sh');
+  assert.equal(updateScriptPath({ KIOSK_UPDATE_SCRIPT: '' }, 'linux'), null);
+  assert.equal(updateScriptPath({ KIOSK_UPDATE_SCRIPT: '/bin/true' }, 'linux'), '/bin/true');
+  assert.equal(updateScriptPath({}, 'win32'), null);
+});
+
+test('canApplyUpdate is false when script is empty or missing', () => {
+  assert.equal(canApplyUpdate({ KIOSK_UPDATE_SCRIPT: '' }, 'linux'), false);
+  assert.equal(canApplyUpdate({ KIOSK_UPDATE_SCRIPT: '/nonexistent-kiosk-update' }, 'linux'), false);
+  // Prefer a path that exists on both Debian and NixOS test hosts.
+  const existing = process.execPath;
+  assert.equal(canApplyUpdate({ KIOSK_UPDATE_SCRIPT: existing }, 'linux'), true);
+  assert.equal(canApplyUpdate({}, 'darwin'), false);
 });
 
 // App-level: /api/update/status reflects the toggle + current version.
@@ -187,7 +220,7 @@ test('GET /api/update/progress is public and reflects the state file', async () 
     const oldBase = process.env.KIOSK_UPDATE_BASE;
     process.env.KIOSK_UPDATE_BASE = mockApi.base;
     const oldScript = process.env.KIOSK_UPDATE_SCRIPT;
-    process.env.KIOSK_UPDATE_SCRIPT = '/bin/true';
+    process.env.KIOSK_UPDATE_SCRIPT = process.execPath;
     try {
       await fetch(`${base}/api/update`, { method: 'POST' });
     } finally {

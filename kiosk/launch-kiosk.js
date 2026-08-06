@@ -4,8 +4,10 @@
 //
 // Resolves Chrome/Edge/Chromium, builds the kiosk flag set, and launches the
 // browser. X-only extras (waiting for the X server, disabling blanking, hiding
-// the cursor) run only on Linux. Everything else is identical on Windows,
-// macOS, and Linux, so the same control server + CDP drive the tab everywhere.
+// the cursor) run only on Linux X11 sessions. Under Wayland (e.g. NixOS + Cage)
+// those are skipped and Chromium is launched with --ozone-platform=wayland.
+// Everything else is identical on Windows, macOS, and Linux, so the same
+// control server + CDP drive the tab everywhere.
 //
 // Modes:
 //   (default)      normal window at $KIOSK_URL
@@ -17,7 +19,8 @@
 //   KIOSK_PROFILE_DIR persistent profile dir (default per-OS)
 //   KIOSK_URL         initial URL (default: control server idle page)
 //   KIOSK_DEBUG_PORT  CDP port (default 9222, localhost only)
-//   KIOSK_X_TIMEOUT   seconds to wait for X on Linux (default 60)
+//   KIOSK_X_TIMEOUT   seconds to wait for X on Linux X11 (default 60)
+//   WAYLAND_DISPLAY / XDG_SESSION_TYPE=wayland — skip X extras, use ozone Wayland
 
 const fs = require('fs');
 const os = require('os');
@@ -84,8 +87,12 @@ function findBrowser(platform = PLATFORM, env = process.env) {
   throw new Error('no Chromium/Chrome/Edge browser found; set KIOSK_CHROMIUM to one');
 }
 
-function buildFlags({ profileDir, debugPort }) {
-  return [
+function isWayland(env = process.env) {
+  return !!(env.WAYLAND_DISPLAY || env.XDG_SESSION_TYPE === 'wayland');
+}
+
+function buildFlags({ profileDir, debugPort, wayland = false }) {
+  const flags = [
     `--remote-debugging-port=${debugPort}`,
     '--remote-debugging-address=127.0.0.1',
     `--user-data-dir=${profileDir}`,
@@ -98,11 +105,13 @@ function buildFlags({ profileDir, debugPort }) {
     '--blink-settings=backgroundcolor=FF000000',
     '--disable-features=TranslateUI,MediaRouter',
   ];
+  if (wayland) flags.push('--ozone-platform=wayland');
+  return flags;
 }
 
 // mode: 'window' | 'kiosk' | 'login'
-function buildCommandLine({ chrome, profileDir, debugPort, url, mode }) {
-  const args = [chrome, ...buildFlags({ profileDir, debugPort })];
+function buildCommandLine({ chrome, profileDir, debugPort, url, mode, wayland = false }) {
+  const args = [chrome, ...buildFlags({ profileDir, debugPort, wayland })];
   if (mode === 'login') {
     args.push('--start-maximized');
   } else if (mode === 'kiosk') {
@@ -168,17 +177,20 @@ async function main() {
   const profileDir = process.env.KIOSK_PROFILE_DIR || defaultProfileDir();
   const debugPort = process.env.KIOSK_DEBUG_PORT || DEFAULT_DEBUG_PORT;
   const url = process.env.KIOSK_URL || DEFAULT_IDLE_URL;
+  const wayland = isWayland();
   fs.mkdirSync(profileDir, { recursive: true });
 
-  if (PLATFORM === 'linux') {
+  // X11 kiosk (Debian install.sh): wait for :0, blanking off, hide cursor.
+  // Wayland kiosk (NixOS + Cage): compositor is already up; skip X extras.
+  if (PLATFORM === 'linux' && !wayland) {
     await waitForX(Number(process.env.KIOSK_X_TIMEOUT || 60) * 1000);
     setBlankOff();
   }
 
-  const cmdLine = buildCommandLine({ chrome, profileDir, debugPort, url, mode });
+  const cmdLine = buildCommandLine({ chrome, profileDir, debugPort, url, mode, wayland });
   const browser = spawn(cmdLine[0], cmdLine.slice(1), { stdio: 'inherit' });
   let unclutter = null;
-  if (PLATFORM === 'linux') unclutter = hideCursor();
+  if (PLATFORM === 'linux' && !wayland) unclutter = hideCursor();
 
   browser.on('error', (err) => {
     console.error(`error: failed to start browser (${cmdLine[0]}): ${err.message}`);
@@ -197,7 +209,15 @@ async function main() {
   });
 }
 
-module.exports = { browserCandidates, findBrowser, buildFlags, buildCommandLine, defaultProfileDir, main };
+module.exports = {
+  browserCandidates,
+  findBrowser,
+  buildFlags,
+  buildCommandLine,
+  defaultProfileDir,
+  isWayland,
+  main,
+};
 
 if (require.main === module) {
   main();

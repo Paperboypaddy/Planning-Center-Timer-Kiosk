@@ -12,9 +12,11 @@ const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
 const {
+  canApplyUpdate,
   getUpdateInfo,
   readUpdateState,
   releasesUrl,
+  updateScriptPath,
   updateStatePath,
   writeUpdateState,
 } = require('./update');
@@ -107,6 +109,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       adminConfigured: adminConfigured(),
       version,
       updatePrereleases: config.update.includePrereleases,
+      canApplyUpdate: canApplyUpdate(),
     };
   }
 
@@ -338,7 +341,18 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   app.get('/api/update/status', asyncHandler(async (req, res) => {
     try {
-      res.json(await getUpdateInfo({ version, includePrereleases: config.update.includePrereleases, signal: req.signal }));
+      const info = await getUpdateInfo({
+        version,
+        includePrereleases: config.update.includePrereleases,
+        signal: req.signal,
+      });
+      info.canApplyUpdate = canApplyUpdate();
+      if (info.updateAvailable && !info.canApplyUpdate) {
+        info.note =
+          info.note ||
+          'A newer release exists; apply it with nixos-rebuild (or your package manager), not from the panel.';
+      }
+      res.json(info);
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
@@ -346,16 +360,25 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   // Apply the update. Linux auto-reinstalls from the latest release (a script
   // invoked via a narrow sudoers entry); other platforms show the download.
+  // Immutable installs (NixOS) set KIOSK_UPDATE_SCRIPT= empty so apply is disabled.
   // Progress is tracked in a state file the panel polls via
   // GET /api/update/progress.
   app.post('/api/update', asyncHandler(async (req, res) => {
+    const script = updateScriptPath();
+    if (!canApplyUpdate()) {
+      return res.json({
+        ok: false,
+        hint:
+          'In-app updates are not available on this install. Update via your package manager (e.g. nixos-rebuild / flake bump).',
+        releaseUrl: releasesUrl(),
+      });
+    }
     if (process.platform === 'linux') {
       const stateFile = updateStatePath(configPath);
       const current = readUpdateState(stateFile);
       if (current.state === 'starting' || current.state === 'running') {
         return res.status(409).json({ error: 'an update is already in progress', state: current.state });
       }
-      const script = process.env.KIOSK_UPDATE_SCRIPT || '/opt/kiosk/kiosk/update.sh';
       writeUpdateState(stateFile, { state: 'starting', progress: 0, message: 'Starting update\u2026' });
       // Resolve the exact release the panel offered (honoring the prerelease
       // toggle) and pass it to the updater, so clicking "install 2026.8.5-beta"
