@@ -15,6 +15,7 @@
   let state = null;
   let editingId = null;
   let authState = null;
+  let updating = false;
 
   const authView = document.getElementById('auth-view');
   const panelView = document.getElementById('panel-view');
@@ -30,7 +31,7 @@
 
   async function api(path, opts) {
     const res = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
-    if (res.status === 401 && !path.startsWith('/api/auth/')) checkAuth();
+    if (res.status === 401 && !updating && !path.startsWith('/api/auth/')) checkAuth();
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.error || ('HTTP ' + res.status)), { status: res.status, detail: data.detail });
     return data;
@@ -172,6 +173,7 @@
     populateDisplayTypes();
     syncTvSettings();
     syncReboot();
+    syncWifi();
     syncUpdateToggle();
     document.getElementById('update-version').textContent = (state && state.version) || '\u2014';
     grid.innerHTML = '';
@@ -188,6 +190,7 @@
   }
 
   async function refresh() {
+    if (updating) return;
     if (!authState || !authState.authenticated) return;
     try {
       state = await api('/api/state');
@@ -492,13 +495,21 @@
 
   document.getElementById('apply-update').addEventListener('click', async () => {
     const resultEl = document.getElementById('update-result');
+    const applyWrap = document.getElementById('update-apply');
     resultEl.textContent = 'Applying\u2026';
     resultEl.className = 'msg';
     try {
       const r = await api('/api/update', { method: 'POST' });
       if (r.ok) {
-        resultEl.textContent = r.message;
-        resultEl.className = 'msg ok';
+        // The kiosk will reinstall and restart. Stream the progress bar from
+        // the server's update-state file (which survives the server restart,
+        // and whose endpoint is public precisely so we can keep polling).
+        updating = true;
+        applyWrap.classList.add('hidden');
+        resultEl.textContent = '';
+        showUpdateProgress({ progress: 0, message: 'Starting update\u2026' });
+        pollUpdateProgress();
+        updatePollTimer = setInterval(pollUpdateProgress, 1000);
       } else {
         resultEl.textContent = r.hint || 'Not automatic on this platform.';
         resultEl.className = 'msg';
@@ -509,6 +520,137 @@
     } catch (err) {
       resultEl.textContent = 'Update failed: ' + err.message;
       resultEl.className = 'msg err';
+    }
+  });
+
+  const updateProgressWrap = document.getElementById('update-progress');
+  const updateProgressBar = document.getElementById('update-progress-bar');
+  const updateProgressLabel = document.getElementById('update-progress-label');
+  let updatePollTimer = null;
+
+  function stopUpdatePoll() {
+    if (updatePollTimer) {
+      clearInterval(updatePollTimer);
+      updatePollTimer = null;
+    }
+    updating = false;
+  }
+
+  function showUpdateProgress(s) {
+    updateProgressWrap.classList.remove('hidden');
+    const pct = Math.max(0, Math.min(100, Math.round((s && s.progress) || 0)));
+    updateProgressBar.style.width = pct + '%';
+    updateProgressLabel.textContent = (s && s.message) || '';
+    updateProgressBar.classList.toggle('bar-error', !!(s && s.state === 'error'));
+  }
+
+  async function pollUpdateProgress() {
+    try {
+      const r = await fetch('/api/update/progress');
+      if (!r.ok) return;
+      const s = await r.json();
+      showUpdateProgress(s);
+      if (s.state === 'done') {
+        updateProgressBar.style.width = '100%';
+        updateProgressLabel.textContent = 'Update complete. The panel restarted \u2014 sign in again to continue.';
+        stopUpdatePoll();
+        setTimeout(refresh, 1500);
+      } else if (s.state === 'error') {
+        updateProgressLabel.textContent = 'Update failed: ' + (s.message || 'unknown error');
+        stopUpdatePoll();
+        refresh();
+      }
+    } catch (err) {
+      // The control server restarts mid-update, so a failed poll is expected
+      // and we simply keep trying.
+    }
+  }
+
+  // --- Wi-Fi (supported SBCs only, e.g. Raspberry Pi) ---
+
+  const wifiSection = document.getElementById('wifi-section');
+  const wifiStatusEl = document.getElementById('wifi-status');
+  const wifiNetworkSel = document.getElementById('wifi-network');
+  const wifiPassword = document.getElementById('wifi-password');
+  const wifiTogglePass = document.getElementById('wifi-toggle-pass');
+
+  function syncWifi() {
+    if (!state || !state.wifi) return;
+    // Only shown on supported hardware (Raspberry Pi + NetworkManager); on
+    // Windows/macOS/unsupported boards the whole section stays hidden.
+    wifiSection.classList.toggle('hidden', !state.wifi.supported);
+  }
+
+  function setWifiMsg(text, cls) {
+    const el = document.getElementById('wifi-msg');
+    el.textContent = text;
+    el.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  // Show/Hide password toggle: usable only once something has been typed, and
+  // it flips back to hidden if the field is cleared.
+  function syncPassToggle() {
+    const hasText = wifiPassword.value.length > 0;
+    wifiTogglePass.disabled = !hasText;
+    if (!hasText) {
+      wifiPassword.type = 'password';
+      wifiTogglePass.textContent = 'Show';
+    }
+  }
+  wifiPassword.addEventListener('input', syncPassToggle);
+  wifiTogglePass.addEventListener('click', () => {
+    const showing = wifiPassword.type === 'text';
+    wifiPassword.type = showing ? 'password' : 'text';
+    wifiTogglePass.textContent = showing ? 'Show' : 'Hide';
+  });
+
+  document.getElementById('wifi-scan').addEventListener('click', async () => {
+    wifiStatusEl.textContent = 'Scanning for networks\u2026 (a few seconds)';
+    wifiStatusEl.className = 'msg';
+    try {
+      const r = await api('/api/wifi/networks');
+      const nets = r.networks || [];
+      wifiNetworkSel.innerHTML = '';
+      const seen = {};
+      const sorted = nets.slice().sort((a, b) => (b.signal || 0) - (a.signal || 0));
+      for (const n of sorted) {
+        if (!n.ssid || seen[n.ssid]) continue;
+        seen[n.ssid] = true;
+        const o = document.createElement('option');
+        o.value = n.ssid;
+        o.textContent = n.ssid
+          + ((n.security && n.security !== '--') ? '  \u00b7  ' + n.security : '')
+          + (n.inUse ? '  \u00b7  (connected)' : '');
+        wifiNetworkSel.appendChild(o);
+      }
+      if (!sorted.length) {
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = 'No networks found';
+        wifiNetworkSel.appendChild(o);
+      }
+      wifiStatusEl.textContent = sorted.length + ' network(s) found. Select one and enter its password.';
+      wifiStatusEl.className = 'msg ok';
+    } catch (err) {
+      wifiStatusEl.textContent = 'Scan failed: ' + err.message;
+      wifiStatusEl.className = 'msg err';
+    }
+  });
+
+  document.getElementById('wifi-connect').addEventListener('click', async () => {
+    const ssid = wifiNetworkSel.value;
+    if (!ssid) {
+      setWifiMsg('Select a network first.', 'err');
+      return;
+    }
+    setWifiMsg('Connecting to \u201c' + ssid + '\u201d\u2026', '');
+    try {
+      await api('/api/wifi/connect', { method: 'POST', body: JSON.stringify({ ssid, password: wifiPassword.value }) });
+      setWifiMsg('Connected to \u201c' + ssid + '\u201d. The kiosk may take a moment to get an IP address.', 'ok');
+      wifiPassword.value = '';
+      syncPassToggle();
+    } catch (err) {
+      setWifiMsg('Could not connect: ' + err.message, 'err');
     }
   });
 

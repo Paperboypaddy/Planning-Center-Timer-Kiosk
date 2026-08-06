@@ -85,8 +85,13 @@ Caddy `basic_auth` anymore. `server/auth.js` provides:
   `/api/auth/*` routes, so the auth endpoints are public and everything else is
   protected.
 - **Loopback is always allowed** (the kiosk window and local control skip
-  auth), so the TV display works without a login. `requireAuth` checks
-  `req.socket.remoteAddress`.
+  auth), so the TV display works without a login. `requireAuth` uses
+  `clientAddress(req)`: for a loopback peer it takes the **rightmost**
+  `X-Forwarded-For` entry (what Caddy appended), so LAN clients arriving
+  through the Caddy reverse proxy are never mistaken for loopback — the login
+  page genuinely protects the panel on Linux/macOS. Direct non-loopback peers
+  (the Windows HTTPS listener) never consult `X-Forwarded-For`, so a forged
+  header can't bypass auth.
 - Linux/macOS: Caddy is a **TLS-only** reverse proxy to `127.0.0.1:3001`
   (no auth config). Windows: in-server HTTPS on `0.0.0.0:443` (`KIOSK_TLS=1`),
   plus a plain-HTTP listener on `127.0.0.1:3001` for the kiosk window.
@@ -95,7 +100,12 @@ Caddy `basic_auth` anymore. `server/auth.js` provides:
 
 **When adding a new `/api/*` endpoint**: it is automatically behind
 `requireAuth` (loopback exempt) — that's usually what you want. If it must be
-public, put it under `/api/auth/` or register it before the middleware.
+public, put it under `/api/auth/` or register it before the middleware. The
+one deliberate exception is `GET /api/update/progress` (registered before
+`requireAuth`): applying an update restarts the control server, wiping the
+in-memory sessions, so the panel must be able to keep polling the progress bar
+afterwards. It only exposes update state (version/percent/message), nothing
+sensitive.
 
 ## Config (`config.json`)
 

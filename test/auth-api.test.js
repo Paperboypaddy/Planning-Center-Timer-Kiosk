@@ -29,8 +29,8 @@ async function startApp(initial) {
   return {
     config,
     configPath,
-    send: async (p, method, body) => {
-      const headers = { 'Content-Type': 'application/json' };
+    send: async (p, method, body, extraHeaders = {}) => {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, extraHeaders);
       if (cookie) headers.Cookie = cookie;
       const res = await fetch(base + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
       const setCookie = res.headers.get('set-cookie');
@@ -88,6 +88,41 @@ test('login/logout round-trip with a session cookie', async () => {
 
     r = await ctx.send('/api/auth/status', 'GET');
     assert.equal(r.body.authenticated, false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('proxied LAN clients are not treated as loopback', async () => {
+  const hash = bcrypt.hashSync('mypassword1', 10);
+  const ctx = await startApp({ admin: { username: 'admin', passwordHash: hash } });
+  try {
+    // Behind Caddy the app sees a loopback peer plus an X-Forwarded-For header
+    // with the real client IP. Without a session cookie this must be rejected.
+    const r = await ctx.send('/api/state', 'GET', null, { 'X-Forwarded-For': '192.168.1.50' });
+    assert.equal(r.status, 401);
+    // The same client can still log in normally.
+    const login = await ctx.send('/api/auth/login', 'POST', { username: 'admin', password: 'mypassword1' }, { 'X-Forwarded-For': '192.168.1.50' });
+    assert.equal(login.status, 200);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('login endpoint rate-limits repeated failures per client', async () => {
+  const hash = bcrypt.hashSync('mypassword1', 10);
+  const ctx = await startApp({ admin: { username: 'admin', passwordHash: hash } });
+  try {
+    const lan = { 'X-Forwarded-For': '192.168.1.50' };
+    for (let i = 0; i < 5; i += 1) {
+      const r = await ctx.send('/api/auth/login', 'POST', { username: 'admin', password: 'wrong' }, lan);
+      assert.equal(r.status, 401);
+    }
+    const locked = await ctx.send('/api/auth/login', 'POST', { username: 'admin', password: 'mypassword1' }, lan);
+    assert.equal(locked.status, 429, 'correct password also refused while locked out');
+    // A different client IP is unaffected.
+    const other = await ctx.send('/api/auth/login', 'POST', { username: 'admin', password: 'mypassword1' }, { 'X-Forwarded-For': '192.168.1.99' });
+    assert.equal(other.status, 200);
   } finally {
     await ctx.close();
   }

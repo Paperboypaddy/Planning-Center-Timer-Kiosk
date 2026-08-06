@@ -5,8 +5,47 @@
 // cross-platform; applying is platform-specific (Linux can auto-reinstall,
 // Windows/macOS point at the release download).
 
+const fs = require('fs');
+const path = require('path');
+
 const DEFAULT_REPO = 'Paperboypaddy/Planning-Center-Timer-Kiosk';
 const DEFAULT_API_BASE = 'https://api.github.com';
+
+const IDLE_UPDATE_STATE = {
+  state: 'idle',
+  progress: null,
+  message: '',
+  version: null,
+  updatedAt: null,
+};
+
+// The update script (kiosk/update.sh) and the control server both write/read a
+// small JSON state file so the panel can show live progress. The file lives
+// next to config.json (owned by the control user; root's update.sh can write
+// there too). KIOSK_UPDATE_STATE overrides the location.
+function updateStatePath(configPath, env = process.env) {
+  return env.KIOSK_UPDATE_STATE || path.join(path.dirname(configPath), 'update-state.json');
+}
+
+function readUpdateState(filePath) {
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return Object.assign({}, IDLE_UPDATE_STATE, data);
+  } catch {
+    return { ...IDLE_UPDATE_STATE };
+  }
+}
+
+function writeUpdateState(filePath, patch) {
+  try {
+    const next = Object.assign({}, readUpdateState(filePath), patch, { updatedAt: new Date().toISOString() });
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(next, null, 2) + '\n');
+    return next;
+  } catch {
+    return null;
+  }
+}
 
 function parseVersion(v) {
   const m = /v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?/.exec(String(v || '').trim());
@@ -72,4 +111,13 @@ function releasesUrl(repo = process.env.KIOSK_UPDATE_REPO || DEFAULT_REPO) {
   return `https://github.com/${repo}/releases`;
 }
 
-module.exports = { compareVersions, getUpdateInfo, parseVersion, releasesUrl };
+module.exports = {
+  IDLE_UPDATE_STATE,
+  compareVersions,
+  getUpdateInfo,
+  parseVersion,
+  readUpdateState,
+  releasesUrl,
+  updateStatePath,
+  writeUpdateState,
+};

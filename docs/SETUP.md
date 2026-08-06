@@ -111,6 +111,15 @@ the control panel, select it, and check the TV. If you get an error page
 instead of the countdown, log out and redo step 2 while watching the address
 bar for the *exact* final URL.
 
+> **Display type & theme are DOM-dependent.** The "Apply display type / theme"
+> feature works by clicking the layout dropdown and theme switch inside the
+> Planning Center *live controller* toolbar (`server/kiosk.js` selects them by
+> the `.LiveToolbar-control` / `.theme-toggle-switch` class names). These are
+> Planning Center's own UI, which can change without notice. If applying a
+> display type or theme stops working after a PCO update, the panel reports it
+> (best-effort; selection still succeeds), and the selector in `kiosk.js`
+> (`setDisplayType` / `setTheme`) is the first place to look.
+
 ## 4. Start the kiosk browser
 
 ```bash

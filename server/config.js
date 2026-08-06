@@ -102,6 +102,14 @@ function saveConfig(filePath, config) {
   const tmp = `${filePath}.tmp`;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(config, null, 2) + '\n');
+  // The config holds the PCO API key and the admin bcrypt hash, so keep it
+  // owner-readable only (the control-server user). Best-effort on Windows,
+  // where chmod is not meaningful.
+  try {
+    fs.chmodSync(tmp, 0o600);
+  } catch {
+    /* Windows / filesystems without POSIX perms */
+  }
   fs.renameSync(tmp, filePath);
 }
 

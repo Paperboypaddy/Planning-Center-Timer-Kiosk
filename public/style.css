@@ -198,6 +198,29 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .remote-type-row select { max-width: 20rem; }
 #tv-lead { max-width: 8rem; }
 #reboot-at { max-width: 10rem; }
+#wifi-network { max-width: 100%; }
+
+.pass-row { display: flex; gap: 0.5rem; }
+.pass-row input { flex: 1; }
+.pass-row .btn { flex-shrink: 0; }
+
+.progress-wrap { margin-top: 0.9rem; }
+.progress-track {
+  height: 0.75rem;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.progress-bar.bar-error { background: var(--danger); }
+.progress-label { margin-top: 0.4rem; font-size: 0.8rem; color: var(--muted); min-height: 1em; }
 
 label.check {
   display: flex;

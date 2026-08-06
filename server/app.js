@@ -10,13 +10,25 @@ const { buildUrl } = require('./url');
 const { listPlans, listPlanGroups, listPlanTimes, resolveServiceTypeId, PcoError } = require('./pco');
 const { DISPLAY_TYPES, THEMES } = require('./kiosk');
 const { CronExpressionParser } = require('cron-parser');
-const { getUpdateInfo, releasesUrl } = require('./update');
 const {
+  getUpdateInfo,
+  readUpdateState,
+  releasesUrl,
+  updateStatePath,
+  writeUpdateState,
+} = require('./update');
+const {
+  clearLoginFailures,
+  clientAddress,
   createSession,
   destroySession,
   getSession,
   hashPassword,
+  isLoopback,
+  loginLockedOut,
+  loginRetryAfter,
   parseCookies,
+  recordLoginFailure,
   requestIsSecure,
   requireAuth,
   sessionToken,
@@ -25,10 +37,11 @@ const {
   verifyPassword,
 } = require('./auth');
 const cecModule = require('./cec');
+const wifiModule = require('./wifi');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
-function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, runScheduler = false, rebootFn = null, version = require('../package.json').version }) {
+function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec = cecModule, wifi = wifiModule, runScheduler = false, rebootFn = null, version = require('../package.json').version }) {
   kiosk.idleUrl = idleUrl || `http://127.0.0.1:3001/nowplaying`;
 
   function persist() {
@@ -79,6 +92,7 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       tv: { available: cec.isAvailable(), autoOn: config.tv.autoOn, leadMinutes: config.tv.leadMinutes },
       reboot: { cron: config.reboot.cron },
       platform: { os: process.platform },
+      wifi: { supported: wifi.isAvailable() },
       adminConfigured: adminConfigured(),
       version,
       updatePrereleases: config.update.includePrereleases,
@@ -120,6 +134,13 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   // First-run only: create the admin account.
   app.post('/api/auth/setup', async (req, res) => {
+    const ip = clientAddress(req);
+    if (!isLoopback(ip) && loginLockedOut(ip)) {
+      return res
+        .status(429)
+        .set('Retry-After', String(loginRetryAfter(ip)))
+        .json({ error: 'too many attempts; try again shortly' });
+    }
     if (adminConfigured()) return res.status(400).json({ error: 'an admin account already exists' });
     const body = req.body || {};
     const username = typeof body.username === 'string' ? body.username.trim() : '';
@@ -128,18 +149,28 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     if (password.length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
     config.admin = { username, passwordHash: await hashPassword(password) };
     if (!persist()) return res.status(500).json({ error: 'failed to save config' });
+    clearLoginFailures(ip);
     setSessionCookie(res, createSession(username), requestIsSecure(req));
     res.json({ ok: true, authenticated: true, setupRequired: false });
   });
 
   app.post('/api/auth/login', async (req, res) => {
+    const ip = clientAddress(req);
+    if (!isLoopback(ip) && loginLockedOut(ip)) {
+      return res
+        .status(429)
+        .set('Retry-After', String(loginRetryAfter(ip)))
+        .json({ error: 'too many failed login attempts; try again shortly' });
+    }
     if (!adminConfigured()) return res.status(400).json({ error: 'no admin account yet; set one up first' });
     const body = req.body || {};
     const username = typeof body.username === 'string' ? body.username : '';
     const password = typeof body.password === 'string' ? body.password : '';
     if (username !== config.admin.username || !(await verifyPassword(password, config.admin.passwordHash))) {
+      if (!isLoopback(ip)) recordLoginFailure(ip);
       return res.status(401).json({ error: 'invalid username or password' });
     }
+    clearLoginFailures(ip);
     setSessionCookie(res, createSession(username), requestIsSecure(req));
     res.json({ ok: true });
   });
@@ -148,6 +179,14 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
     destroySession(sessionToken(req));
     clearSessionCookie(res);
     res.json({ ok: true });
+  });
+
+  // Update progress is deliberately PUBLIC: applying an update restarts the
+  // control server, which wipes the in-memory sessions — the panel must still
+  // be able to poll the progress bar after that. It only reveals update state
+  // (version / percent / message), nothing sensitive.
+  app.get('/api/update/progress', (req, res) => {
+    res.json(readUpdateState(updateStatePath(configPath)));
   });
 
   // Everything else under /api requires a session (loopback is always allowed,
@@ -267,17 +306,22 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
 
   // Apply the update. Linux auto-reinstalls from the latest release (a script
   // invoked via a narrow sudoers entry); other platforms show the download.
+  // Progress is tracked in a state file the panel polls via
+  // GET /api/update/progress.
   app.post('/api/update', (req, res) => {
     if (process.platform === 'linux') {
       const script = process.env.KIOSK_UPDATE_SCRIPT || '/opt/kiosk/kiosk/update.sh';
+      const stateFile = updateStatePath(configPath);
+      writeUpdateState(stateFile, { state: 'starting', progress: 0, message: 'Starting update\u2026' });
       const child = spawn('sudo', ['-n', script], { detached: true, stdio: 'ignore' });
       child.on('error', (err) => {
+        writeUpdateState(stateFile, { state: 'error', progress: 0, message: `could not start the update: ${err.message}` });
         logger.error(`[update] could not start update: ${err.message}`);
         res.status(502).json({ error: `could not start the update: ${err.message}`, hint: `run manually: sudo ${script}` });
       });
       child.on('spawn', () => {
         logger.log(`[update] update script started: ${script}`);
-        res.json({ ok: true, message: 'update started; the kiosk will reinstall and restart' });
+        res.json({ ok: true, message: 'update started' });
       });
     } else {
       res.json({
@@ -549,6 +593,43 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
       res.json({ ok: true, created, skipped });
     } catch (err) {
       handlePcoError(err, res);
+    }
+  });
+
+  // --- Wi-Fi (supported SBCs only, e.g. Raspberry Pi with NetworkManager) ---
+  // The panel only shows this section when wifi.isAvailable() is true, so
+  // Windows/macOS and unsupported boards never see it. Passwords go straight
+  // to NetworkManager; they are never stored in config.json or logged.
+
+  app.get('/api/wifi/status', async (req, res) => {
+    try {
+      res.json(await wifi.status({ signal: req.signal }));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  });
+
+  // Rescans (a few seconds on an SBC) and returns nearby networks.
+  app.get('/api/wifi/networks', async (req, res) => {
+    try {
+      const r = await wifi.listNetworks({ signal: req.signal });
+      if (!r.ok) return res.status(502).json({ error: r.error || 'wifi scan failed' });
+      res.json({ supported: true, networks: r.networks });
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/wifi/connect', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const ssid = typeof body.ssid === 'string' ? body.ssid.trim() : '';
+      const password = typeof body.password === 'string' ? body.password : '';
+      const r = await wifi.connectNetwork(ssid, password);
+      if (!r.ok) return res.status(502).json({ error: r.error || 'could not connect' });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(502).json({ error: err.message });
     }
   });
 

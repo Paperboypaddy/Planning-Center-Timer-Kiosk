@@ -18,6 +18,7 @@ async function main() {
   const appDir = path.resolve(process.argv[2] || process.cwd());
   const outDir = path.resolve(process.argv[3] || path.join(appDir, 'caddy'));
   const host = `${os.hostname()}.local`;
+  const panelPort = Number(process.env.KIOSK_PANEL_PORT || 443);
 
   // Self-signed cert (cross-platform generator).
   execFileSync(process.execPath, [path.join(__dirname, 'gen-cert.js'), outDir, host], { stdio: 'inherit' });
@@ -25,7 +26,7 @@ async function main() {
   const certPath = path.join(outDir, 'kiosk-cert.pem').replace(/\\/g, '/');
   const keyPath = path.join(outDir, 'kiosk-key.pem').replace(/\\/g, '/');
 
-  const caddyfile = `:443 {
+  const caddyfile = `:${panelPort} {
     tls ${certPath} ${keyPath}
     reverse_proxy 127.0.0.1:3001 {
         flush_interval -1
@@ -34,7 +35,7 @@ async function main() {
 `;
   fs.mkdirSync(appDir, { recursive: true });
   fs.writeFileSync(path.join(appDir, 'Caddyfile'), caddyfile);
-  console.log(`Panel:     https://${host}`);
+  console.log(`Panel:     https://${host}:${panelPort}`);
   console.log('(create the admin account on first visit to the panel)');
 }
 

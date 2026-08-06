@@ -174,6 +174,19 @@ The TV must have CEC enabled, and the Pi needs `sudo apt install cec-utils`.
 CEC commands are best-effort: if no CEC device is present the panel shows
 "unavailable" and nothing breaks.
 
+## Wi-Fi setup (Raspberry Pi)
+
+On **Raspberry Pi** boards (the only SBCs validated so far) the panel's
+**Wi-Fi** section scans for nearby networks, lets you pick one, and connects to
+it. Enter the password there — it is passed straight to NetworkManager and is
+**not** stored by the kiosk or shown again. The **Show/Hide** toggle reveals the
+password once typed. The section is hidden on Windows/macOS and on unsupported
+boards.
+
+Requires **NetworkManager** (`nmcli`) on the Pi, which is the default on
+Raspberry Pi OS Bookworm+. If the section is hidden, install it:
+`sudo apt install network-manager`.
+
 ## Optional: import services from the Planning Center API
 
 Instead of typing plan IDs, you can connect the control panel to your Planning
@@ -224,6 +237,7 @@ systemd):
 | Env var | Default | Purpose |
 | --- | --- | --- |
 | `KIOSK_PORT` | `3001` | Local control-server port (localhost only; the panel is exposed via Caddy on :443) |
+| `KIOSK_PANEL_PORT` | `443` | HTTPS port the installer/Caddy serves the panel on (Linux/macOS installers) |
 | `KIOSK_CONFIG` | `./config.json` | Path to the JSON config file |
 | `KIOSK_CDP_HOST` | `127.0.0.1` | Host Chromium's CDP listens on |
 | `KIOSK_CDP_PORT` | `9222` | Chromium's remote-debugging port |
@@ -251,6 +265,10 @@ systemd):
 | `PUT` | `/api/pco/config` | Save/clear the PCO API key (`{apiKey}`) |
 | `GET` | `/api/pco/plans` | Upcoming plans (needs a configured key) |
 | `POST` | `/api/pco/import` | `{planIds}` → add plans as services (deduped) |
+| `GET` | `/api/wifi/status` | Wi-Fi support + current network (supported SBCs only) |
+| `GET` | `/api/wifi/networks` | Scan for nearby networks (SBCs only) |
+| `POST` | `/api/wifi/connect` | `{ssid, password?}` → connect via NetworkManager (never stored) |
+| `GET` | `/api/update/progress` | Current update progress (public, so the panel can poll across restarts) |
 | `POST` | `/api/remote/start` | Start kiosk screencast; optional `{url}` to navigate first (e.g. the PCO login page) |
 | `POST` | `/api/remote/stop` | Stop the screencast |
 | `POST` | `/api/remote/input` | Forward `{type:'mouse'|'text'|'key', …}` to the kiosk tab |

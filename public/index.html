@@ -145,6 +145,26 @@
     <p id="tv-unsupported" class="hint hidden">TV power control (HDMI-CEC) isn\u2019t available on this platform, so auto-on is disabled too. This section is for Linux boxes with a CEC-capable TV.</p>
   </section>
 
+  <section class="settings" id="wifi-section">
+    <div class="section-head">
+      <h2>Wi-Fi</h2>
+    </div>
+    <p class="hint">Connect the kiosk to a wireless network. Available on supported boards (Raspberry Pi with NetworkManager). Your network password is sent straight to the OS and is not stored by the panel.</p>
+    <div id="wifi-status" class="msg"></div>
+    <div class="remote-actions">
+      <button id="wifi-scan" class="btn btn-ghost">Scan for networks</button>
+      <button id="wifi-connect" class="btn btn-primary">Connect</button>
+    </div>
+    <label for="wifi-network">Network</label>
+    <select id="wifi-network"></select>
+    <label for="wifi-password">Password</label>
+    <div class="pass-row">
+      <input id="wifi-password" type="password" placeholder="Network password" autocomplete="new-password" spellcheck="false">
+      <button id="wifi-toggle-pass" class="btn btn-ghost" type="button" disabled>Show</button>
+    </div>
+    <div id="wifi-msg" class="msg" role="status"></div>
+  </section>
+
   <section class="settings">
     <div class="section-head">
       <h2>Reboot schedule</h2>
@@ -189,10 +209,14 @@
     <div class="remote-actions">
       <button id="check-update" class="btn btn-ghost">Check for updates</button>
     </div>
-    <div id="update-result" class="msg" role="status"></div>
     <div id="update-apply" class="hidden">
       <button id="apply-update" class="btn btn-primary">Download &amp; install update</button>
     </div>
+    <div id="update-progress" class="progress-wrap hidden">
+      <div class="progress-track"><div id="update-progress-bar" class="progress-bar" style="width:0%"></div></div>
+      <p id="update-progress-label" class="progress-label"></p>
+    </div>
+    <div id="update-result" class="msg" role="status"></div>
     <div id="update-hint" class="hint hidden"></div>
   </section>
 

@@ -7,7 +7,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 
-const { compareVersions, getUpdateInfo } = require('../server/update');
+const { compareVersions, getUpdateInfo, readUpdateState, updateStatePath, writeUpdateState } = require('../server/update');
 
 // handler(req.url) -> { status?, body }
 function startMockRelease(handler) {
@@ -95,6 +95,33 @@ test('getUpdateInfo throws when the API is unreachable', async () => {
   await assert.rejects(() => getUpdateInfo({ repo: 'x/repo', version: '2026.8.4', baseUrl: 'http://127.0.0.1:1' }));
 });
 
+test('update state helpers round-trip through the state file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kiosk-updstate-'));
+  const file = path.join(dir, 'update-state.json');
+  // Missing file -> idle.
+  assert.equal(readUpdateState(file).state, 'idle');
+  assert.equal(readUpdateState(file).progress, null);
+  // Write + read back.
+  writeUpdateState(file, { state: 'downloading', progress: 15, message: 'Downloading release', version: '2026.8.5' });
+  const read = readUpdateState(file);
+  assert.equal(read.state, 'downloading');
+  assert.equal(read.progress, 15);
+  assert.equal(read.message, 'Downloading release');
+  assert.equal(read.version, '2026.8.5');
+  assert.ok(typeof read.updatedAt === 'string' && read.updatedAt.length > 0);
+  // Later writes merge over the previous state.
+  writeUpdateState(file, { state: 'done', progress: 100, message: 'Update complete' });
+  const done = readUpdateState(file);
+  assert.equal(done.state, 'done');
+  assert.equal(done.progress, 100);
+  assert.equal(done.version, '2026.8.5', 'version survives from the previous state');
+});
+
+test('updateStatePath defaults next to config, overridable via env', () => {
+  assert.equal(updateStatePath('/var/lib/kiosk/config.json'), '/var/lib/kiosk/update-state.json');
+  assert.equal(updateStatePath('/tmp/x/config.json', { KIOSK_UPDATE_STATE: '/tmp/custom.json' }), '/tmp/custom.json');
+});
+
 // App-level: /api/update/status reflects the toggle + current version.
 const { loadConfig } = require('../server/config');
 const { KioskDriver } = require('../server/kiosk');
@@ -126,5 +153,43 @@ test('GET /api/update/status reports an available update and the version', async
     kiosk.stop();
     await new Promise((resolve) => server.close(resolve));
     mockApi.server.close();
+  }
+});
+
+test('GET /api/update/progress is public and reflects the state file', async () => {
+  const configPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kiosk-upd-')), 'config.json');
+  const config = loadConfig(configPath);
+  const kiosk = new KioskDriver({ host: '127.0.0.1', port: -1, idleUrl: 'http://127.0.0.1:3001/nowplaying', reconnectMs: 100 });
+  const cec = { isAvailable: () => true, powerOn: async () => ({ ok: true }), powerOff: async () => ({ ok: true }), powerStatus: async () => ({ ok: true, power: null }) };
+  const { app } = createApp({ config, kiosk, configPath, idleUrl: 'http://127.0.0.1:3001/nowplaying', logger: quietLogger, cec, version: '2026.8.4' });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    // No session cookie and no admin configured: the endpoint is public and
+    // reports idle until the update starts.
+    let res = await fetch(`${base}/api/update/progress`);
+    assert.equal(res.status, 200);
+    let body = await res.json();
+    assert.equal(body.state, 'idle');
+
+    // POST /api/update writes a starting state before spawning the updater.
+    // The spawn may succeed or fail depending on whether sudo exists here,
+    // but the state write itself must happen either way.
+    const oldScript = process.env.KIOSK_UPDATE_SCRIPT;
+    process.env.KIOSK_UPDATE_SCRIPT = '/bin/true';
+    try {
+      await fetch(`${base}/api/update`, { method: 'POST' });
+    } finally {
+      if (oldScript === undefined) delete process.env.KIOSK_UPDATE_SCRIPT;
+      else process.env.KIOSK_UPDATE_SCRIPT = oldScript;
+    }
+    res = await fetch(`${base}/api/update/progress`);
+    body = await res.json();
+    assert.ok(['starting', 'error'].includes(body.state), `state was "${body.state}"`);
+    assert.equal(body.progress, 0);
+  } finally {
+    kiosk.stop();
+    await new Promise((resolve) => server.close(resolve));
   }
 });

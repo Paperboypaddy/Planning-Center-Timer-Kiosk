@@ -18,6 +18,7 @@
 #   KIOSK_TAILSCALE          "yes"/"no" Tailscale      (default: prompt)
 #   KIOSK_TAILSCALE_AUTHKEY  Tailscale auth key        (optional)
 #   KIOSK_SKIP_PACKAGES      "1" skip apt installs     (pre-provisioned boxes)
+#   KIOSK_PANEL_PORT         HTTPS port for the panel  (default 443)
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,6 +26,7 @@ DEST_DIR="${KIOSK_DEST_DIR:-/opt/kiosk}"
 CONFIG_DIR="${KIOSK_CONFIG_DIR:-/var/lib/kiosk}"
 BROWSER_USER="${KIOSK_BROWSER_USER:-kiosk}"
 CONTROL_USER="${KIOSK_CONTROL_USER:-kiosk}"
+PANEL_PORT="${KIOSK_PANEL_PORT:-443}"
 NODE_BIN=""
 
 # --- OS / architecture support ------------------------------------------------
@@ -206,7 +208,7 @@ chmod 644 /etc/caddy/kiosk-cert.pem
 chmod 600 /etc/caddy/kiosk-key.pem
 
 cat > /etc/caddy/Caddyfile <<EOF
-:443 {
+:$PANEL_PORT {
     tls /etc/caddy/kiosk-cert.pem /etc/caddy/kiosk-key.pem
     reverse_proxy 127.0.0.1:3001 {
         flush_interval -1
@@ -244,8 +246,8 @@ esac
 
 echo
 echo "==> Done. Kiosk is installed and the services are running."
-echo "    Control panel:   https://$(hostname).local"
-echo "    (standard HTTPS port 443; self-signed certificate - accept the"
+echo "    Control panel:   https://$(hostname).local:$PANEL_PORT"
+echo "    (standard HTTPS port $PANEL_PORT; self-signed certificate - accept the"
 echo "     browser warning once per device)"
 echo
 echo "==> Remaining manual steps:"
