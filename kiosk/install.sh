@@ -226,6 +226,12 @@ systemctl enable kiosk-browser.service
 # (headless test VMs) lightdm may not start, and the next boot still lands on
 # the kiosk session.
 systemctl enable lightdm
+# (Re)start lightdm so it picks up the autologin config NOW. On a reinstall
+# lightdm is usually already running at the greeter, where `start
+# graphical.target` is a no-op -- restarting it applies the new autologin user
+# immediately. Best-effort so headless machines without a working display
+# still install cleanly and land on the kiosk on next boot.
+systemctl restart lightdm || true
 systemctl start graphical.target || true
 
 # launch-kiosk.sh's wait_for_x handles the boot race with lightdm.
