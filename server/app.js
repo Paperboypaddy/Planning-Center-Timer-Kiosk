@@ -308,12 +308,25 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   // invoked via a narrow sudoers entry); other platforms show the download.
   // Progress is tracked in a state file the panel polls via
   // GET /api/update/progress.
-  app.post('/api/update', (req, res) => {
+  app.post('/api/update', async (req, res) => {
     if (process.platform === 'linux') {
       const script = process.env.KIOSK_UPDATE_SCRIPT || '/opt/kiosk/kiosk/update.sh';
       const stateFile = updateStatePath(configPath);
       writeUpdateState(stateFile, { state: 'starting', progress: 0, message: 'Starting update\u2026' });
-      const child = spawn('sudo', ['-n', script], { detached: true, stdio: 'ignore' });
+      // Resolve the exact release the panel offered (honoring the prerelease
+      // toggle) and pass it to the updater, so clicking "install 2026.8.5-beta"
+      // actually installs that tag rather than the latest stable. Best-effort:
+      // on failure the updater resolves the latest release itself.
+      let target = null;
+      try {
+        const info = await getUpdateInfo({ version, includePrereleases: config.update.includePrereleases, signal: req.signal });
+        if (info.updateAvailable && info.latestVersion) target = info.latestVersion;
+      } catch {
+        /* updater falls back to its own resolution */
+      }
+      const args = ['-n', script];
+      if (target) args.push(target);
+      const child = spawn('sudo', args, { detached: true, stdio: 'ignore' });
       child.on('error', (err) => {
         writeUpdateState(stateFile, { state: 'error', progress: 0, message: `could not start the update: ${err.message}` });
         logger.error(`[update] could not start update: ${err.message}`);
@@ -636,7 +649,8 @@ function createApp({ config, kiosk, configPath, idleUrl, logger = console, cec =
   // --- Remote control of the kiosk tab (screencast + input forwarding) ---
   // Used for the one-time PCO login from a phone: the panel streams the kiosk
   // tab and forwards taps/keystrokes, so the session cookie lands in the
-  // kiosk's own Chromium profile. LAN-only (panel has no auth).
+  // kiosk's own Chromium profile. These routes sit behind requireAuth, so LAN
+  // clients must be logged in (loopback stays exempt for the kiosk window).
   const sseClients = new Set();
   let remoteActive = false;
   let lastFrameMeta = null;

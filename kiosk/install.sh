@@ -58,17 +58,24 @@ if [[ "${KIOSK_SKIP_PACKAGES:-}" != "1" ]]; then
   echo "==> Installing system packages (this can take a while)"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq curl ca-certificates git \
+  apt-get install -y -qq curl ca-certificates git gnupg \
     xorg lightdm xinit x11-xserver-utils unclutter \
     matchbox-window-manager xauth avahi-daemon \
     || { echo "error: failed to install X/kiosk packages" >&2; exit 1; }
 
   # Node.js (>= 18 required). Use the distro package if it's new enough,
-  # otherwise install Node 20 LTS via NodeSource.
+  # otherwise add NodeSource's signed apt repo and install Node 20 LTS.
+  # We configure the repo directly rather than piping NodeSource's setup
+  # script through a shell, so no remote script is executed during install.
   apt-get install -y -qq nodejs 2>/dev/null || true
   if ! node --version 2>/dev/null | grep -qE '^v(1[89]|[2-9][0-9])\.'; then
     echo "==> Distro Node.js too old; installing Node 20 LTS via NodeSource"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    NODESOURCE_KEY=/usr/share/keyrings/nodesource.gpg
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      | gpg --dearmor -o "$NODESOURCE_KEY"
+    echo "deb [signed-by=$NODESOURCE_KEY] https://deb.nodesource.com/node_20.x nodistro main" \
+      > /etc/apt/sources.list.d/nodesource.list
+    apt-get update -qq
     apt-get install -y -qq nodejs
   fi
   NODE_BIN="$(command -v node || true)"

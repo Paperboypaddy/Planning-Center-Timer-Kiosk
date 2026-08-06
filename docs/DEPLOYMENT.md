@@ -20,10 +20,17 @@ Related: [SETUP.md](SETUP.md) (step-by-step install), [PLATFORMS.md](PLATFORMS.m
       traffic (it only trusts `X-Forwarded-For` from a loopback peer and takes
       the rightmost entry the proxy saw). The kiosk window and local control
       remain loopback-exempt on purpose.
+- [ ] Confirm a **forged** `X-Forwarded-For: 127.0.0.1` from a LAN device
+      cannot bypass auth (the proxy appends the real client IP last, so it is
+      never treated as loopback).
 - [ ] Create the admin account on first run with a **strong** password
       (8+ characters; change it later under **Settings → Change password**).
 - [ ] Login is rate-limited (5 failures / 60 s per client IP → HTTP 429).
-      Lockouts clear themselves after the window expires.
+      Lockouts clear themselves after the window expires. Note the counters
+      are in-memory and **reset on a server restart** — expected behavior.
+- [ ] Sessions live in-memory, so **every restart logs everyone out** (the
+      panel simply shows the login page again). This is expected; apply
+      software updates over the LAN, not from the kiosk's own browser.
 - [ ] Choose a password that is not shared with any other system.
 
 **Secrets & data at rest**
@@ -42,8 +49,11 @@ Related: [SETUP.md](SETUP.md) (step-by-step install), [PLATFORMS.md](PLATFORMS.m
 
 - [ ] The panel is LAN-only behind HTTPS. The control server itself binds to
       `127.0.0.1:3001`; CDP binds to `127.0.0.1:9222` only.
-- [ ] The certificate is self-signed — users must accept a browser warning
-      once per device. Do not rely on this for a public/cloud deployment.
+- [ ] The certificate is self-signed — it encrypts traffic but does **not**
+      prove identity to browsers, so users must accept a warning once per
+      device. For stronger guarantees, distribute/pin the certificate to the
+      phones that use the panel. Do not rely on it for a public/cloud
+      deployment.
 - [ ] If the panel must be reachable beyond the building, use **Tailscale**
       (an ACL-isolated tailnet) rather than port-forwarding.
 - [ ] Consider restricting `:443` at the network level (router/guest VLAN) so
@@ -54,11 +64,15 @@ Related: [SETUP.md](SETUP.md) (step-by-step install), [PLATFORMS.md](PLATFORMS.m
 - [ ] The control server runs as an unprivileged user. Its only sudo grants
       (in `/etc/sudoers.d/kiosk-reboot`) are `systemctl reboot` and the update
       script. Verify after install: `sudo visudo -c` and review the file.
-- [ ] The **update script runs as root** (`kiosk/update.sh`). It now verifies
-      the release tarball's SHA-256 checksum and its version tag before
-      extracting/reinstalling, but it still downloads and executes code from
-      GitHub — review what the installer fetches (NodeSource, Google Chrome,
-      Tailscale) and treat the repository as trusted.
+- [ ] The **update script runs as root** (`kiosk/update.sh`). It verifies the
+      release tarball's SHA-256 checksum and its version tag before
+      extracting/reinstalling, but the downloaded code still executes as root —
+      a compromised GitHub account/repository/workflow is the residual trust
+      boundary. Treat the repository as trusted.
+- [ ] The installer **executes third-party installers during setup**:
+      NodeSource's Node.js repo is configured via its signed apt key (no remote
+      script is run), but Google Chrome and Tailscale (optional) are still
+      fetched/run from their vendors as root. Review these before installing.
 
 **Platform ownership**
 
@@ -73,9 +87,12 @@ Related: [SETUP.md](SETUP.md) (step-by-step install), [PLATFORMS.md](PLATFORMS.m
       **NetworkManager** (`nmcli`) installed — the default on Raspberry Pi OS
       Bookworm+. On other boards, Windows, and macOS it is hidden.
 - [ ] Wi-Fi passwords are passed straight to NetworkManager and are never
-      stored by the kiosk or echoed back. Connecting can drop the panel's own
-      network (e.g. switching from Ethernet to Wi-Fi) — the operator should be
-      on-site or on a device that follows the kiosk's new network.
+      stored by the kiosk or echoed back; nmcli errors are scrubbed of the
+      password before they reach the panel. Note the password is briefly
+      visible in the process list (`ps`) while `nmcli` runs. Connecting can
+      drop the panel's own network (e.g. switching from Ethernet to Wi-Fi) —
+      the operator should be on-site or on a device that follows the kiosk's
+      new network.
 
 **Updates**
 
@@ -97,6 +114,9 @@ fresh install:
    units are `active`; panel reachable at `https://<hostname>.local`.
 2. **Admin setup** — first-run "Create admin account" works; the panel
    requires login from a phone (not just localhost).
+2b. **Auth through the proxy** — from a separate LAN device, `/api/state`
+   returns **401** before login; after login the session cookie works through
+   Caddy; a forged `X-Forwarded-For: 127.0.0.1` header cannot bypass auth.
 3. **PCO login** — "Kiosk remote control → Start" streams the kiosk; complete
    the PCO login from the phone.
 4. **Session persistence** — reboot the device; the kiosk is still logged in
@@ -119,7 +139,10 @@ fresh install:
     `config.json`.
 12. **Software update** — on a staging box, publish a release and confirm
     `update.sh` downloads, verifies the checksum, reinstalls, and comes back
-    healthy, with the panel showing a live progress bar throughout.
+    healthy, with the panel showing a live progress bar throughout. When the
+    **Include prereleases** toggle is on, applying a beta installs that beta
+    (the tag the panel offered is passed to the updater), not the latest
+    stable.
 
 Log the results for each device you commission so future pilots start from a
 known-good baseline.

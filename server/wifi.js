@@ -65,6 +65,14 @@ function runNmcli(args, timeoutMs = 20000) {
   });
 }
 
+// Never let a password surface in an error the panel displays, even if nmcli
+// echoes it back. Replaces every occurrence with a placeholder.
+function sanitizeError(message, secret) {
+  let m = String(message || '');
+  if (secret && m.includes(secret)) m = m.split(secret).join('***');
+  return m;
+}
+
 // nmcli -t separates fields with ':' and backslash-escapes ':' and '\' inside
 // a value, so split on unescaped colons.
 function parseFields(line) {
@@ -110,14 +118,15 @@ async function listNetworks({ signal } = {}) {
 
 // Connect to a network. Open networks (empty password) skip the password
 // argument. The password is only passed to nmcli; it is never logged or stored
-// by the control server.
+// by the control server, and it is scrubbed from any error we surface.
 async function connectNetwork(ssid, password, { signal } = {}) {
   if (!isAvailable()) return { ok: false, error: 'wifi is not supported on this device' };
   if (!ssid) return { ok: false, error: 'ssid is required' };
   const args = ['device', 'wifi', 'connect', ssid];
   if (password) args.push('password', password);
   const r = await runNmcli(args, 60000);
-  return r.ok ? { ok: true } : { ok: false, error: r.error || 'connect failed' };
+  if (r.ok) return { ok: true };
+  return { ok: false, error: sanitizeError(r.error, password) || 'connect failed' };
 }
 
 // Current connection state: the SSID with an IN-USE flag (cached scan, no
@@ -138,4 +147,4 @@ async function status({ signal } = {}) {
   return { supported: true, connectedSsid };
 }
 
-module.exports = { connectNetwork, hardware, isAvailable, listNetworks, parseFields, status };
+module.exports = { connectNetwork, hardware, isAvailable, listNetworks, parseFields, sanitizeError, status };

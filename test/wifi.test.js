@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { parseFields } = require('../server/wifi');
+const { parseFields, sanitizeError } = require('../server/wifi');
 const { loadConfig } = require('../server/config');
 const { KioskDriver } = require('../server/kiosk');
 const { createApp } = require('../server/app');
@@ -17,6 +17,13 @@ test('parseFields splits nmcli terse output on unescaped colons', () => {
   // Colons inside an SSID are backslash-escaped by nmcli.
   assert.deepEqual(parseFields(':My\\:Network:75:WPA2'), ['', 'My:Network', '75', 'WPA2']);
   assert.deepEqual(parseFields(''), ['']);
+});
+
+test('sanitizeError scrubs the password out of nmcli output', () => {
+  assert.equal(sanitizeError('Error: 802-11-wireless-security.psk: secret not set', 'hunter2'), 'Error: 802-11-wireless-security.psk: secret not set');
+  assert.equal(sanitizeError('wrong password hunter2 was rejected', 'hunter2'), 'wrong password *** was rejected');
+  assert.equal(sanitizeError('hunter2 appears twice: hunter2', 'hunter2'), '*** appears twice: ***');
+  assert.equal(sanitizeError('', 'hunter2'), '');
 });
 
 // A fake wifi module so the routes can be exercised without nmcli.
@@ -78,6 +85,22 @@ test('wifi routes list networks, connect, and report status', async () => {
     });
     assert.equal(res.status, 200);
     assert.deepEqual(wifi.calls, [{ ssid: 'ChurchWiFi', password: 'hunter2' }]);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('wifi connect passes unusual SSID and password through unchanged', async () => {
+  const wifi = fakeWifi();
+  const ctx = await startApp(wifi);
+  try {
+    const res = await fetch(`${ctx.base}/api/wifi/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid: 'Church: Guest "5GHz"\\Net', password: 'p a s s w o r d \u2014 x:y' }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(wifi.calls, [{ ssid: 'Church: Guest "5GHz"\\Net', password: 'p a s s w o r d \u2014 x:y' }]);
   } finally {
     await ctx.close();
   }

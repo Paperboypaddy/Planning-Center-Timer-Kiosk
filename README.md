@@ -339,11 +339,18 @@ cut it:
   prereleases (beta/unstable)** toggle is on, so stable panels auto-update and
   betas stay opt-in.
 
+> **Before tagging, bump `package.json` (and `app/package.json`) to the release
+> version.** The updater verifies that the tarball's version matches the tag,
+> so a beta tagged `2026.8.5-beta` must ship a `package.json` that also says
+> `2026.8.5-beta`, or the update is refused as a downgrade guard.
+
 Publishing a release triggers the `release` workflow, which builds the Windows
-app and **attaches** the portable exe, the installer, and a source tarball to
-the release automatically. On Linux the panel can apply an update itself (it
-downloads the release source, re-runs `install.sh`, and restarts the services);
-on Windows/macOS it links to the release for a manual reinstall.
+app and **attaches** the portable exe, the installer, a source tarball, and a
+`checksums.txt` (SHA-256 of the tarball) to the release automatically. On
+Linux the panel can apply an update itself (it downloads the release's source
+**asset**, verifies the checksum against `checksums.txt`, re-runs
+`install.sh`, and restarts the services); on Windows/macOS it links to the
+release for a manual reinstall.
 
 ## Security notes
 
@@ -358,7 +365,9 @@ on Windows/macOS it links to the release for a manual reinstall.
   password (stored in `config.json` as a bcrypt hash); afterwards it's a
   normal login. The admin password can be changed from the panel (Settings →
   Change password). Loopback clients (the kiosk window, local control) skip
-  auth; LAN clients need a valid session cookie.
+  auth; LAN clients need a valid session cookie. Sessions live in memory, so a
+  control-server restart (e.g. applying an update) logs everyone out — the
+  panel shows the login page again.
 - The control server runs as an **unprivileged** user (`kiosk` by default).
   Its only elevated permission is a narrow sudoers entry that allows exactly
   `systemctl reboot` (for the reboot schedule) — see `kiosk/install.sh`.

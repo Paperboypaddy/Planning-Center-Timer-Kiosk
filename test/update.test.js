@@ -173,16 +173,24 @@ test('GET /api/update/progress is public and reflects the state file', async () 
     let body = await res.json();
     assert.equal(body.state, 'idle');
 
-    // POST /api/update writes a starting state before spawning the updater.
-    // The spawn may succeed or fail depending on whether sudo exists here,
-    // but the state write itself must happen either way.
+    // POST /api/update resolves the tag it offered via the update API, writes
+    // a starting state, then spawns the updater. The spawn may succeed or fail
+    // depending on whether sudo exists here, but the state write must happen
+    // either way. KIOSK_UPDATE_BASE points at a local mock so the resolution
+    // never touches the real GitHub API.
+    const mockApi = await startMockRelease((url) => ({ body: REL('2026.8.5') }));
+    const oldBase = process.env.KIOSK_UPDATE_BASE;
+    process.env.KIOSK_UPDATE_BASE = mockApi.base;
     const oldScript = process.env.KIOSK_UPDATE_SCRIPT;
     process.env.KIOSK_UPDATE_SCRIPT = '/bin/true';
     try {
       await fetch(`${base}/api/update`, { method: 'POST' });
     } finally {
+      if (oldBase === undefined) delete process.env.KIOSK_UPDATE_BASE;
+      else process.env.KIOSK_UPDATE_BASE = oldBase;
       if (oldScript === undefined) delete process.env.KIOSK_UPDATE_SCRIPT;
       else process.env.KIOSK_UPDATE_SCRIPT = oldScript;
+      mockApi.server.close();
     }
     res = await fetch(`${base}/api/update/progress`);
     body = await res.json();
@@ -192,4 +200,13 @@ test('GET /api/update/progress is public and reflects the state file', async () 
     kiosk.stop();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('update.sh downloads the checksummed release asset, not the tag archive', () => {
+  const updateSh = fs.readFileSync(path.join(__dirname, '..', 'kiosk', 'update.sh'), 'utf8');
+  // The checksum in checksums.txt is computed for the CI-built release asset,
+  // which is not byte-identical to GitHub's auto-generated tag archive. The
+  // updater must fetch the asset, or verification would always fail.
+  assert.match(updateSh, /releases\/download\/\$TAG\/planningcenter-timer-kiosk\.tar\.gz/);
+  assert.doesNotMatch(updateSh, /\/archive\/refs\/tags\//);
 });

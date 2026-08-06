@@ -55,16 +55,24 @@ fail() {
 }
 
 update_state starting 5 "Checking for the latest release"
-echo "==> Checking for the latest release of $REPO"
-TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-  | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);process.stdout.write(j.tag_name||'')}catch{}})" \
-  || true)"
+# A target tag may be passed by the control server (which knows what it offered
+# the panel, including prereleases). Without one, resolve the latest stable.
+TAG="${1:-}"
+if [[ -z "$TAG" ]]; then
+  echo "==> Checking for the latest release of $REPO"
+  TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+    | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);process.stdout.write(j.tag_name||'')}catch{}})" \
+    || true)"
+fi
 if [[ -z "$TAG" ]]; then
   fail "no release found. Publish a release on GitHub (or set KIOSK_UPDATE_REPO)."
 fi
 update_state downloading 15 "Downloading release $TAG"
 echo "==> Downloading $TAG"
-curl -fsSL -o "$WORK/planningcenter-timer-kiosk.tar.gz" "https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz"
+# Download the release ASSET, not GitHub's auto-generated tag archive: the
+# checksum in checksums.txt is computed for this exact file in the release
+# workflow, and the two archives are not byte-for-byte identical.
+curl -fsSL -o "$WORK/planningcenter-timer-kiosk.tar.gz" "https://github.com/$REPO/releases/download/$TAG/planningcenter-timer-kiosk.tar.gz"
 
 # Integrity check: the release ships a SHA-256 checksums.txt. We refuse to
 # extract or run anything that does not match. (Both files come from the same
@@ -81,8 +89,15 @@ fi
 
 update_state extracting 65 "Extracting source"
 tar xzf "$WORK/planningcenter-timer-kiosk.tar.gz" -C "$WORK"
-NEW_SRC="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
-if [[ -z "$NEW_SRC" ]]; then
+# The CI-built asset (git archive) has no top-level wrapper directory, so the
+# repo files land directly in $WORK; GitHub's own archives wrap them in one.
+# Detect either layout.
+if [[ -f "$WORK/package.json" ]]; then
+  NEW_SRC="$WORK"
+else
+  NEW_SRC="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
+fi
+if [[ -z "$NEW_SRC" || ! -f "$NEW_SRC/package.json" ]]; then
   fail "could not find the extracted source"
 fi
 
