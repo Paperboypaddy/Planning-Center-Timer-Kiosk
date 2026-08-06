@@ -138,16 +138,33 @@ echo "==> Installing npm dependencies"
 ( cd "$DEST_DIR" && npm install --omit=dev --no-audit --no-fund )
 
 # --- Users ---------------------------------------------------------------------
-# Control server: unprivileged user (never root); reboot is delegated via a
-# narrow sudoers entry below.
-if ! id -u "$CONTROL_USER" >/dev/null 2>&1; then
-  echo "==> Creating control user '$CONTROL_USER'"
-  useradd --system --shell /usr/sbin/nologin "$CONTROL_USER"
-fi
-# Browser / X session user (created with a home so XAUTHORITY paths work).
+# Browser / X session user: needs a home (for XAUTHORITY) and a real shell,
+# since lightdm autologin refuses accounts with a nologin shell.
 if ! id -u "$BROWSER_USER" >/dev/null 2>&1; then
   echo "==> Creating browser user '$BROWSER_USER'"
   useradd -m -s /bin/bash "$BROWSER_USER"
+else
+  # The account may already exist as the control user (when BROWSER_USER and
+  # CONTROL_USER are the same name), which was created with a nologin shell.
+  # Repair it so the kiosk X session can run.
+  BROWSER_SHELL="$(getent passwd "$BROWSER_USER" | cut -d: -f7)"
+  BROWSER_HOME="$(getent passwd "$BROWSER_USER" | cut -d: -f6)"
+  if [[ "$BROWSER_SHELL" == "/usr/sbin/nologin" || "$BROWSER_SHELL" == "/usr/bin/nologin" || "$BROWSER_SHELL" == "/bin/false" ]]; then
+    echo "==> Giving '$BROWSER_USER' a login shell (needed for the kiosk session)"
+    usermod -s /bin/bash "$BROWSER_USER"
+  fi
+  if [[ -n "$BROWSER_HOME" && ! -d "$BROWSER_HOME" ]]; then
+    echo "==> Creating home for '$BROWSER_USER'"
+    mkdir -p "$BROWSER_HOME"
+    chown "$BROWSER_USER":"$BROWSER_USER" "$BROWSER_HOME"
+  fi
+fi
+# Control server: unprivileged user (never root); reboot is delegated via a
+# narrow sudoers entry below. When it is the same account as the browser user,
+# it already exists with a shell/home and is simply reused.
+if ! id -u "$CONTROL_USER" >/dev/null 2>&1; then
+  echo "==> Creating control user '$CONTROL_USER'"
+  useradd --system --shell /usr/sbin/nologin "$CONTROL_USER"
 fi
 
 # CEC (cec-utils) reads /dev/cec0, usually 660 root:video.
